@@ -19,6 +19,8 @@
   "inventorygif.config.animations.extra.dx.tooltip": "X offset from the right edge of the main image. Applies when the slot has an animation selected.",
   "inventorygif.config.animations.extra.dy": "Y Offset",
   "inventorygif.config.animations.extra.dy.tooltip": "Y offset relative to the main image. Applies when the slot has an animation selected.",
+  "inventorygif.config.animations.extra.scale": "Scale (0 = same as main)",
+  "inventorygif.config.animations.extra.scale.tooltip": "This image's own scale. 0 — use the node/global scale.",
   "inventorygif.config.editor.description": "Sprite sheet parameters from inventorygif/animations/. Values are saved to name.json next to the PNG immediately on change and applied live.",
   "inventorygif.config.editor.frameCount": "Frame count",
   "inventorygif.config.editor.frameWidth": "Frame width",

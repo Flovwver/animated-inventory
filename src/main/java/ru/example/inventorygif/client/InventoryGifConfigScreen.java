@@ -337,6 +337,22 @@ public final class InventoryGifConfigScreen {
                         AnimationPositionStorage.save();
                     })
                     .build());
+
+            double currentExtraScale = binding != null && binding.scale > 0 ? binding.scale : 0.0;
+            extrasSub.add(entries.startDoubleField(
+                            Component.translatable("inventorygif.config.animations.extra.scale"),
+                            currentExtraScale)
+                    .setMin(0.0).setMax(10.0)
+                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.scale.tooltip"))
+                    .setSaveConsumer(v -> {
+                        if (slotIndex >= e.extras.size() || Math.abs(v - e.extras.get(slotIndex).scale) < 1.0E-9) {
+                            return;
+                        }
+                        e.inherit = false;
+                        e.extras.get(slotIndex).scale = v;
+                        AnimationPositionStorage.save();
+                    })
+                    .build());
         }
 
         list.add(extrasSub.build());

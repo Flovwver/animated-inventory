@@ -19,6 +19,8 @@
   "inventorygif.config.animations.extra.dx.tooltip": "Смещение по X от правого края основной картинки. Работает, если анимация в слоте выбрана.",
   "inventorygif.config.animations.extra.dy": "Смещение Y",
   "inventorygif.config.animations.extra.dy.tooltip": "Смещение по Y относительно основной картинки. Работает, если анимация в слоте выбрана.",
+  "inventorygif.config.animations.extra.scale": "Скейл (0 = как у основной)",
+  "inventorygif.config.animations.extra.scale.tooltip": "Свой скейл этой картинки. 0 — брать скейл узла/глобальный.",
   "inventorygif.config.editor.description": "Параметры спрайтов из папки inventorygif/animations/. Значения сохраняются в name.json рядом с PNG сразу при изменении и применяются на лету.",
   "inventorygif.config.editor.frameCount": "Кадров",
   "inventorygif.config.editor.frameWidth": "Ширина кадра",

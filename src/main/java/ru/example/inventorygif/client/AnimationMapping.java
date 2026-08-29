@@ -79,7 +79,11 @@ public final class AnimationMapping {
             if (extraMeta == null) {
                 continue;
             }
-            result.add(new ImageBinding(new AnimationSpec(extraMeta, scale), binding.dx, binding.dy));
+            float extraScale = binding.scale > 0
+                    ? (float) binding.scale
+                    : scale;
+            extraScale = Math.max(0.05f, Math.min(10.0f, extraScale));
+            result.add(new ImageBinding(new AnimationSpec(extraMeta, extraScale), binding.dx, binding.dy));
         }
         return result;
     }

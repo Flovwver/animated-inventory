@@ -47,15 +47,22 @@ public final class AnimationPositionStorage {
         public String animation;
         public int dx;
         public int dy;
+        /** Per-image scale; <= 0 = use the node/main scale. */
+        public double scale;
 
         public Binding(String animation, int dx, int dy) {
+            this(animation, dx, dy, 0.0);
+        }
+
+        public Binding(String animation, int dx, int dy, double scale) {
             this.animation = animation;
             this.dx = dx;
             this.dy = dy;
+            this.scale = scale;
         }
 
         Binding copy() {
-            return new Binding(animation, dx, dy);
+            return new Binding(animation, dx, dy, scale);
         }
     }
 
@@ -254,6 +261,9 @@ public final class AnimationPositionStorage {
                     bObj.addProperty("animation", b.animation);
                     bObj.addProperty("dx", b.dx);
                     bObj.addProperty("dy", b.dy);
+                    if (b.scale > 0) {
+                        bObj.addProperty("scale", b.scale);
+                    }
                     arr.add(bObj);
                 }
                 obj.add("extras", arr);
@@ -302,8 +312,9 @@ public final class AnimationPositionStorage {
                                 String anim = bObj.has("animation") ? bObj.get("animation").getAsString() : "";
                                 int dx = bObj.has("dx") ? bObj.get("dx").getAsInt() : 0;
                                 int dy = bObj.has("dy") ? bObj.get("dy").getAsInt() : 0;
+                                double bScale = bObj.has("scale") ? bObj.get("scale").getAsDouble() : 0.0;
                                 if (anim != null && !anim.isEmpty()) {
-                                    entry.extras.add(new Binding(anim, dx, dy));
+                                    entry.extras.add(new Binding(anim, dx, dy, bScale));
                                 }
                             }
                         }
