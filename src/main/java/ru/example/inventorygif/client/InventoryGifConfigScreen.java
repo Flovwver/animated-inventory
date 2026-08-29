@@ -217,6 +217,9 @@ public final class InventoryGifConfigScreen {
                 .setSelections(animationNames)
                 .setSuggestionMode(false)
                 .setSaveConsumer(v -> {
+                    if (v.equals(current)) {
+                        return; // unchanged: do not flip inheritance on screen close
+                    }
                     e.inherit = false;
                     e.animation = v;
                     AnimationPositionStorage.save();
@@ -227,6 +230,9 @@ public final class InventoryGifConfigScreen {
                         Component.translatable("inventorygif.config.animations.x"), e.x)
                 .setMin(-10000).setMax(10000)
                 .setSaveConsumer(v -> {
+                    if (v == e.x) {
+                        return;
+                    }
                     e.inherit = false;
                     e.x = v;
                     AnimationPositionStorage.save();
@@ -237,6 +243,9 @@ public final class InventoryGifConfigScreen {
                         Component.translatable("inventorygif.config.animations.y"), e.y)
                 .setMin(-10000).setMax(10000)
                 .setSaveConsumer(v -> {
+                    if (v == e.y) {
+                        return;
+                    }
                     e.inherit = false;
                     e.y = v;
                     AnimationPositionStorage.save();
@@ -249,6 +258,9 @@ public final class InventoryGifConfigScreen {
                 .setMin(0.0).setMax(10.0)
                 .setTooltip(Component.translatable("inventorygif.config.animations.scale.tooltip"))
                 .setSaveConsumer(v -> {
+                    if (Math.abs(v - e.scale) < 1.0E-9) {
+                        return;
+                    }
                     e.inherit = false;
                     e.scale = v;
                     AnimationPositionStorage.save();
