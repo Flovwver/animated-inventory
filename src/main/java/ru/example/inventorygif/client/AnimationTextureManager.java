@@ -193,7 +193,10 @@ public final class AnimationTextureManager {
                 int r = (argb >>> 16) & 0xFF;
                 int g = (argb >>> 8) & 0xFF;
                 int b = argb & 0xFF;
-                sheet.setPixelRGBA(ox + x, oy + y, (r << 24) | (g << 16) | (b << 8) | a);
+                // NativeImage.setPixelRGBA packs as ABGR (alpha high byte), which
+                // on little-endian uploads as RGBA bytes for GL_RGBA. Using the
+                // wrong order would swap red/blue and misplace alpha.
+                sheet.setPixelRGBA(ox + x, oy + y, (a << 24) | (b << 16) | (g << 8) | r);
             }
         }
     }
