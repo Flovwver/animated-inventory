@@ -37,16 +37,15 @@ import ru.example.inventorygif.InventoryGif;
  * This class is registered automatically by the @EventBusSubscriber annotation;
  * the bus is determined automatically (the deprecated bus= attribute is ignored).
  *
- * Position resolution (see {@link #resolveOffsets}): a position dragged and saved
- * for this exact screen wins; otherwise the position saved for the survival
- * inventory is reused; otherwise the {@code xOffset}/{@code yOffset} config
- * defaults apply. Dragging is handled by {@link AnimationDragHandler} and saved
- * positions live in {@link AnimationPositionStorage}.
+ * Position resolution (see {@link #resolveOffsets}): the position stored in the
+ * per-screen entry wins; new menus inherit the survival inventory position on
+ * first open. Dragging is handled by {@link AnimationDragHandler}; positions and
+ * the per-screen animation binding live in {@link AnimationPositionStorage}.
  *
- * All parameters (offsets, scale, frame timing/count/size, texture path, debug flag)
- * come from the client config: {@code config/inventorygif-client.toml}
- * (see {@link InventoryGifConfig}). The sprite sheet is loaded from the instance
- * directory by {@link AnimationTextureManager}, not from inside the mod jar.
+ * Which animation is drawn is resolved by {@link AnimationMapping} from the
+ * per-screen binding; sprite sheets come from {@link AnimationLibrary}
+ * ({@code <game>/inventorygif/animations/}) and are registered by
+ * {@link AnimationTextureManager}.
  */
 @EventBusSubscriber(modid = InventoryGif.MODID, value = Dist.CLIENT)
 public final class InventoryGifRenderer {
@@ -62,14 +61,19 @@ public final class InventoryGifRenderer {
                 || screen instanceof CreativeModeInventoryScreen;
     }
 
-    /** Animation parameters (texture, frames, scale) resolved for this screen. */
+    /** Animation parameters (metadata + scale) resolved for this screen. */
     static AnimationMapping.AnimationSpec resolveSpec(AbstractContainerScreen<?> screen) {
         return AnimationMapping.resolve(screen);
     }
 
-    /** On-screen edge length of the animation square for the given spec, in GUI pixels. */
-    static int scaledSize(AnimationMapping.AnimationSpec spec) {
-        return Math.round(spec.frameSize() * spec.scale());
+    /** On-screen width of the animation for the given spec, in GUI pixels. */
+    static int scaledWidth(AnimationMapping.AnimationSpec spec) {
+        return Math.round(spec.frameWidth() * spec.scale());
+    }
+
+    /** On-screen height of the animation for the given spec, in GUI pixels. */
+    static int scaledHeight(AnimationMapping.AnimationSpec spec) {
+        return Math.round(spec.frameHeight() * spec.scale());
     }
 
     /**
@@ -82,15 +86,8 @@ public final class InventoryGifRenderer {
         if (drag != null) {
             return drag;
         }
-        int[] saved = AnimationPositionStorage.get(screen.getClass().getName());
-        if (saved != null) {
-            return saved;
-        }
-        saved = AnimationPositionStorage.get(AnimationPositionStorage.SURVIVAL_KEY);
-        if (saved != null) {
-            return saved;
-        }
-        return new int[]{InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get()};
+        AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(screen);
+        return new int[]{entry.x, entry.y};
     }
 
     /**
@@ -103,24 +100,25 @@ public final class InventoryGifRenderer {
     static int[] computeOrigin(AbstractContainerScreen<?> screen, int xOffset, int yOffset,
                                AnimationMapping.AnimationSpec spec) {
         Window window = screen.getMinecraft().getWindow();
-        int scaled = scaledSize(spec);
+        int scaledW = scaledWidth(spec);
+        int scaledH = scaledHeight(spec);
         int originX = screen.getGuiLeft() + xOffset;
         int originY = screen.getGuiTop() + yOffset;
 
         if (AnimationDragHandler.isDragging()) {
-            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaled));
-            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaled));
+            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaledW));
+            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaledH));
         } else {
-            if (originX + scaled > window.getGuiScaledWidth()) {
-                originX = screen.getGuiLeft() - scaled - 2;
+            if (originX + scaledW > window.getGuiScaledWidth()) {
+                originX = screen.getGuiLeft() - scaledW - 2;
             }
-            if (originY + scaled > window.getGuiScaledHeight()) {
-                originY = Math.max(0, window.getGuiScaledHeight() - scaled);
+            if (originY + scaledH > window.getGuiScaledHeight()) {
+                originY = Math.max(0, window.getGuiScaledHeight() - scaledH);
             }
             // Safety net: never leave the animation fully off-screen (bad config or
             // saved value), otherwise it could never be grabbed again with the mouse.
-            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaled));
-            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaled));
+            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaledW));
+            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaledH));
         }
         return new int[]{originX, originY};
     }
@@ -136,16 +134,17 @@ public final class InventoryGifRenderer {
 
         GuiGraphics guiGraphics = event.getGuiGraphics();
 
-        // Animation parameters: per-screen mapping, falling back to the global config.
+        // Animation parameters: per-screen binding, falling back to the default animation.
         final AnimationMapping.AnimationSpec spec = resolveSpec(screen);
         final float scale = spec.scale();
         final long frameDurationMs = spec.frameDurationMs();
         final int frameCount = spec.frameCount();
-        final int frameSize = spec.frameSize();
+        final int frameWidth = spec.frameWidth();
+        final int frameHeight = spec.frameHeight();
         final boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
 
         // Load/reload the sprite sheet for this screen (throttled internally).
-        AnimationTextureManager.Loaded loaded = AnimationTextureManager.get(spec.texturePath());
+        AnimationTextureManager.Loaded loaded = AnimationTextureManager.get(spec.meta());
 
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
@@ -157,7 +156,7 @@ public final class InventoryGifRenderer {
 
         // Current frame from wall-clock time — no stored state, always loops.
         int frame = (int) ((Util.getMillis() / frameDurationMs) % frameCount);
-        float v = frame * frameSize; // frames are stacked vertically in the sheet
+        float v = frame * frameHeight; // frames are stacked vertically in the sheet
 
         guiGraphics.pose().pushPose();
         // ContainerScreenEvent.Render.Foreground fires while the pose is still
@@ -168,13 +167,14 @@ public final class InventoryGifRenderer {
         guiGraphics.pose().scale(scale, scale, 1.0f);
 
         if (debugPlaceholder) {
-            // ARGB translucent green square with the frame band highlighted.
-            guiGraphics.fill(0, 0, frameSize, frameSize, 0x8000FF00);
-            guiGraphics.fill(0, frame * frameSize / frameCount, frameSize,
-                    (frame + 1) * frameSize / frameCount, 0x80FF0000);
+            // ARGB translucent green rectangle with the frame band highlighted.
+            guiGraphics.fill(0, 0, frameWidth, frameHeight, 0x8000FF00);
+            guiGraphics.fill(0, frame * frameHeight / frameCount, frameWidth,
+                    (frame + 1) * frameHeight / frameCount, 0x80FF0000);
         } else {
             // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
-            guiGraphics.blit(AnimationTextureManager.textureOf(loaded), 0, 0, 0f, v, frameSize, frameSize,
+            guiGraphics.blit(AnimationTextureManager.textureOf(loaded), 0, 0, 0f, v,
+                    frameWidth, frameHeight,
                     AnimationTextureManager.widthOf(loaded), AnimationTextureManager.heightOf(loaded));
         }
 

@@ -1,6 +1,9 @@
 {
   "inventorygif.config.title": "Настройки Inventory GIF",
   "inventorygif.config.category.general": "Основные",
+  "inventorygif.config.category.animations": "Анимации",
+  "inventorygif.config.animations.description": "Привязка анимаций к меню. Каждое открытое в игре меню появляется здесь автоматически. Свои спрайты кладите в папку inventorygif/animations/ рядом с папкой игры (пример animation.png + animation.json уже там).",
+  "inventorygif.config.animations.empty": "Папка inventorygif/animations/ пуста — положите туда PNG (и необязательный JSON с параметрами кадров).",
   "inventorygif.config.xOffset": "Смещение по X",
   "inventorygif.config.xOffset.tooltip": "Горизонтальное смещение от угла окна инвентаря, в GUI-пикселях. Инвентарь шириной 176 px, значит 178 — вплотную справа от него.",
   "inventorygif.config.yOffset": "Смещение по Y",

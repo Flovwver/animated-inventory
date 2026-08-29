@@ -6,6 +6,7 @@ import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
 import net.minecraft.client.gui.screens.Screen;
 
 import java.util.List;
+import java.util.Map;
 import net.minecraft.network.chat.Component;
 
 /**
@@ -26,7 +27,10 @@ public final class InventoryGifConfigScreen {
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(parent)
                 .setTitle(Component.translatable("inventorygif.config.title"))
-                .setSavingRunnable(InventoryGifConfig.SPEC::save);
+                .setSavingRunnable(() -> {
+                    InventoryGifConfig.SPEC.save();
+                    AnimationPositionStorage.save();
+                });
 
         ConfigEntryBuilder entries = builder.entryBuilder();
         ConfigCategory general = builder.getOrCreateCategory(
@@ -113,6 +117,46 @@ public final class InventoryGifConfigScreen {
                 .setSaveConsumer(InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER::set)
                 .build());
 
+        addAnimationCategory(builder, entries);
+
         return builder.build();
+    }
+
+    /**
+     * "Animations" category: one dropdown per known menu, bound to the per-screen
+     * entry in {@link AnimationPositionStorage}. Menus appear here automatically
+     * after they are opened once in game.
+     */
+    private static void addAnimationCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
+        ConfigCategory category = builder.getOrCreateCategory(
+                Component.translatable("inventorygif.config.category.animations"));
+
+        category.addEntry(entries.startTextDescription(
+                        Component.translatable("inventorygif.config.animations.description"))
+                .build());
+
+        List<String> animationNames = List.copyOf(AnimationLibrary.animations().keySet());
+        if (animationNames.isEmpty()) {
+            category.addEntry(entries.startTextDescription(
+                            Component.translatable("inventorygif.config.animations.empty"))
+                    .build());
+            return;
+        }
+
+        for (Map.Entry<String, AnimationPositionStorage.Entry> e : AnimationPositionStorage.all().entrySet()) {
+            AnimationPositionStorage.Entry entry = e.getValue();
+            String current = entry.animation == null || entry.animation.isEmpty()
+                    ? AnimationLibrary.DEFAULT_NAME : entry.animation;
+
+            String title = entry.label == null || entry.label.isEmpty() ? e.getKey() : entry.label;
+            category.addEntry(entries.startStringDropdownMenu(
+                            Component.literal(title), current)
+                    .setDefaultValue(AnimationLibrary.DEFAULT_NAME)
+                    .setSelections(animationNames)
+                    .setSuggestionMode(false)
+                    .setTooltip(Component.literal(e.getKey()))
+                    .setSaveConsumer(value -> entry.animation = value)
+                    .build());
+        }
     }
 }

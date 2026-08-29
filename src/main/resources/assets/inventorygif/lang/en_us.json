@@ -1,6 +1,9 @@
 {
   "inventorygif.config.title": "Inventory GIF Settings",
   "inventorygif.config.category.general": "General",
+  "inventorygif.config.category.animations": "Animations",
+  "inventorygif.config.animations.description": "Bind animations to menus. Every menu you open in game appears here automatically. Put your own sprite sheets into the inventorygif/animations/ folder next to the game directory (an example animation.png + animation.json is already there).",
+  "inventorygif.config.animations.empty": "The inventorygif/animations/ folder is empty — drop a PNG there (plus an optional JSON with frame parameters).",
   "inventorygif.config.xOffset": "X Offset",
   "inventorygif.config.xOffset.tooltip": "Horizontal offset from the inventory GUI corner, in GUI pixels. The vanilla inventory is 176 px wide, so 178 places the animation just right of it.",
   "inventorygif.config.yOffset": "Y Offset",

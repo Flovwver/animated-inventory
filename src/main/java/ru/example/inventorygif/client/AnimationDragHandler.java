@@ -70,12 +70,13 @@ public final class AnimationDragHandler {
         AnimationMapping.AnimationSpec spec = InventoryGifRenderer.resolveSpec(screen);
         int[] offsets = InventoryGifRenderer.resolveOffsets(screen);
         int[] origin = InventoryGifRenderer.computeOrigin(screen, offsets[0], offsets[1], spec);
-        int size = InventoryGifRenderer.scaledSize(spec);
+        int width = InventoryGifRenderer.scaledWidth(spec);
+        int height = InventoryGifRenderer.scaledHeight(spec);
 
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
-        boolean inside = mouseX >= origin[0] && mouseX < origin[0] + size
-                && mouseY >= origin[1] && mouseY < origin[1] + size;
+        boolean inside = mouseX >= origin[0] && mouseX < origin[0] + width
+                && mouseY >= origin[1] && mouseY < origin[1] + height;
 
         if (!inside || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
@@ -91,8 +92,13 @@ public final class AnimationDragHandler {
             startMouseY = mouseY;
             event.setCanceled(true);
         } else if (event.getButton() == 1) {
-            // Right click: forget the position of this screen (back to fallback).
-            AnimationPositionStorage.clear(screen.getClass().getName());
+            // Right click: reset this screen's position to the survival inventory one.
+            AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(screen);
+            AnimationPositionStorage.Entry base = AnimationPositionStorage.all()
+                    .get(AnimationPositionStorage.SURVIVAL_KEY);
+            entry.x = base.x;
+            entry.y = base.y;
+            AnimationPositionStorage.save();
             event.setCanceled(true);
         }
     }
@@ -118,8 +124,10 @@ public final class AnimationDragHandler {
             // Save the clamped on-screen position, not the raw drag offset.
             int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY,
                     InventoryGifRenderer.resolveSpec(dragScreen));
-            AnimationPositionStorage.set(dragScreen.getClass().getName(),
-                    origin[0] - dragScreen.getGuiLeft(), origin[1] - dragScreen.getGuiTop());
+            AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(dragScreen);
+            entry.x = origin[0] - dragScreen.getGuiLeft();
+            entry.y = origin[1] - dragScreen.getGuiTop();
+            AnimationPositionStorage.save();
             event.setCanceled(true);
         }
         dragScreen = null;

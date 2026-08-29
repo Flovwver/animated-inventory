@@ -5,38 +5,27 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.fml.loading.FMLPaths;
 import ru.example.inventorygif.InventoryGif;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Loads animation sprite sheets from the instance (game) directory instead of the mod jar,
- * and re-loads them automatically when files change on disk.
+ * Registers sprite sheets from {@link AnimationLibrary} as dynamic textures.
  *
- * Every distinct texture path (from the per-screen mapping or the global config)
- * gets its own {@link Loaded} entry: an externally registered DynamicTexture when
- * the PNG could be read, or the built-in jar texture as a fallback. Paths are
- * registered under ResourceLocations like {@code inventorygif:anim_0}.
- *
- * The default path (from {@link InventoryGifConfig#TEXTURE_PATH}) additionally gets
- * the built-in sprite sheet extracted next to it when missing, so the user
- * immediately sees where to drop a custom PNG.
+ * Every animation gets its own {@link Loaded} entry keyed by animation name:
+ * an externally registered DynamicTexture when the PNG could be read, or the
+ * built-in jar texture as a fallback. Files are re-read automatically when
+ * they change on disk (throttled).
  */
 public final class AnimationTextureManager {
 
     /** Built-in fallback texture inside the mod jar. */
     private static final ResourceLocation FALLBACK_TEXTURE =
             ResourceLocation.fromNamespaceAndPath(InventoryGif.MODID, "textures/gui/animation.png");
-
-    /** Class-path location of the built-in default, used for auto-extraction. */
-    private static final String DEFAULT_TEXTURE_CLASSPATH = "/assets/inventorygif/textures/gui/animation.png";
 
     /** How often texture files are re-checked for changes, in milliseconds. */
     private static final long CHECK_INTERVAL_MS = 500L;
@@ -46,11 +35,11 @@ public final class AnimationTextureManager {
         ResourceLocation texture = FALLBACK_TEXTURE;
         int width = 128;
         int height = 1024;
-        Path path;
         long mtime = Long.MIN_VALUE;
+        AnimationLibrary.AnimationMeta meta;
     }
 
-    /** texturePath (as configured) -> loaded texture state. */
+    /** animation name -> loaded texture state. */
     private static final Map<String, Loaded> POOL = new HashMap<>();
 
     private static long nextCheckMs;
@@ -59,16 +48,16 @@ public final class AnimationTextureManager {
     }
 
     /**
-     * Returns the loaded texture for the given configured path, reloading it first
-     * if the file changed on disk since the last check (throttled per call).
+     * Returns the loaded texture for the given animation metadata, reloading it
+     * first if the file changed on disk since the last check (throttled per call).
      */
-    public static Loaded get(String texturePath) {
-        Loaded loaded = POOL.computeIfAbsent(texturePath, AnimationTextureManager::load);
+    public static Loaded get(AnimationLibrary.AnimationMeta meta) {
+        Loaded loaded = POOL.computeIfAbsent(meta.name(), name -> load(meta));
 
         long now = System.currentTimeMillis();
         if (now >= nextCheckMs) {
             nextCheckMs = now + CHECK_INTERVAL_MS;
-            long mtime = mtime(loaded.path);
+            long mtime = mtime(meta);
             if (mtime != loaded.mtime) {
                 reload(loaded);
             }
@@ -84,9 +73,9 @@ public final class AnimationTextureManager {
         POOL.clear();
     }
 
-    private static Loaded load(String texturePath) {
+    private static Loaded load(AnimationLibrary.AnimationMeta meta) {
         Loaded loaded = new Loaded();
-        loaded.path = resolvePath(texturePath);
+        loaded.meta = meta;
         loaded.texture = ResourceLocation.fromNamespaceAndPath(
                 InventoryGif.MODID, "anim_" + POOL.size());
         reload(loaded);
@@ -94,73 +83,34 @@ public final class AnimationTextureManager {
     }
 
     private static void reload(Loaded loaded) {
-        loaded.mtime = mtime(loaded.path);
+        loaded.mtime = mtime(loaded.meta);
 
-        if (!Files.isRegularFile(loaded.path) && isDefaultPath(loaded.path)) {
-            extractDefaultTexture(loaded.path);
-        }
-
-        if (Files.isRegularFile(loaded.path)) {
-            try (InputStream in = Files.newInputStream(loaded.path)) {
+        if (Files.isRegularFile(loaded.meta.png())) {
+            try (InputStream in = Files.newInputStream(loaded.meta.png())) {
                 NativeImage image = NativeImage.read(in);
                 TextureManager textureManager = Minecraft.getInstance().getTextureManager();
                 textureManager.release(loaded.texture);
                 textureManager.register(loaded.texture, new DynamicTexture(image));
                 loaded.width = image.getWidth();
                 loaded.height = image.getHeight();
-                InventoryGif.LOGGER.info("Loaded animation texture from {} ({}x{})",
-                        loaded.path, loaded.width, loaded.height);
                 return;
             } catch (IOException | RuntimeException e) {
                 InventoryGif.LOGGER.warn("Failed to load animation texture from {}: {}. Using built-in texture.",
-                        loaded.path, e.toString());
+                        loaded.meta.png(), e.toString());
             }
         }
 
-        // Fallback: built-in jar texture with dimensions implied by the config.
+        // Fallback: built-in jar texture with dimensions implied by the meta.
         loaded.texture = FALLBACK_TEXTURE;
-        loaded.width = InventoryGifConfig.FRAME_SIZE.get();
-        loaded.height = InventoryGifConfig.FRAME_SIZE.get() * InventoryGifConfig.FRAME_COUNT.get();
+        loaded.width = loaded.meta.frameWidth();
+        loaded.height = loaded.meta.frameHeight() * loaded.meta.frameCount();
     }
 
-    /** The default texture (from the global config) also gets the auto-extract helper. */
-    private static boolean isDefaultPath(Path path) {
-        return path.equals(resolvePath(InventoryGifConfig.TEXTURE_PATH.get().trim()));
-    }
-
-    private static Path resolvePath(String raw) {
-        Path path;
+    private static long mtime(AnimationLibrary.AnimationMeta meta) {
         try {
-            path = Path.of(raw);
-        } catch (InvalidPathException e) {
-            InventoryGif.LOGGER.warn("Invalid texturePath '{}', falling back to default", raw);
-            path = Path.of("assets", "inventorygif", "animation.png");
-        }
-        return path.isAbsolute() ? path : FMLPaths.GAMEDIR.get().resolve(path);
-    }
-
-    private static long mtime(Path path) {
-        try {
-            return Files.isRegularFile(path) ? Files.getLastModifiedTime(path).toMillis() : -1L;
+            return Files.isRegularFile(meta.png()) ? Files.getLastModifiedTime(meta.png()).toMillis() : -1L;
         } catch (IOException e) {
             return -1L;
-        }
-    }
-
-    /** Copies the built-in sprite sheet from the mod jar to the configured location, best effort. */
-    private static void extractDefaultTexture(Path path) {
-        try (InputStream in = AnimationTextureManager.class.getResourceAsStream(DEFAULT_TEXTURE_CLASSPATH)) {
-            if (in == null) {
-                return;
-            }
-            Path parent = path.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Files.copy(in, path);
-            InventoryGif.LOGGER.info("Extracted default animation texture to {}", path);
-        } catch (IOException | RuntimeException e) {
-            InventoryGif.LOGGER.warn("Could not extract default animation texture to {}: {}", path, e.toString());
         }
     }
 
