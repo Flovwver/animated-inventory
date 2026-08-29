@@ -197,14 +197,16 @@ public final class AnimationPositionStorage {
      */
     public static Entry resolveEffective(Screen screen) {
         ensureBranch(screen);
-        Entry entry = entries().get(keyOf(screen));
+        return resolveEffectiveByKey(keyOf(screen));
+    }
+
+    /** Same as {@link #resolveEffective(Screen)} but for an arbitrary node key. */
+    public static Entry resolveEffectiveByKey(String key) {
+        Entry entry = entries().get(key);
         while (entry != null && entry.inherit && entry.parentKey != null) {
             entry = entries().get(entry.parentKey);
         }
-        if (entry == null) {
-            entry = entries().get(SURVIVAL_KEY);
-        }
-        return entry;
+        return entry != null ? entry : entries().get(SURVIVAL_KEY);
     }
 
     /** Resets the screen's title node to inherit from its parent again. */

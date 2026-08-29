@@ -197,6 +197,10 @@ public final class InventoryGifConfigScreen {
                                                              List<String> animationNames,
                                                              ConfigEntryBuilder entries) {
         AnimationPositionStorage.Entry e = all.get(key);
+        // When the node inherits, display and edit the effective (parent) values;
+        // the first edit materializes them into this node.
+        AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffectiveByKey(key);
+        List<AnimationPositionStorage.Image> display = e.inherit ? effective.images : e.images;
         List<AbstractConfigListEntry> list = new ArrayList<>();
 
         if (e.parentKey != null && !e.parentKey.isEmpty()) {
@@ -216,20 +220,13 @@ public final class InventoryGifConfigScreen {
                 Component.translatable("inventorygif.config.animations.images"));
         imagesSub.setExpanded(false);
 
-        // Draft positions per image slot: field consumers write the full draft,
-        // so changing several fields before closing the screen never loses edits.
-        Map<Integer, int[]> drafts = new HashMap<>();
         List<String> options = new ArrayList<>(animationNames);
         options.add(0, ""); // empty = slot disabled
 
         for (int slot = 0; slot < IMAGE_SLOTS; slot++) {
             final int idx = slot;
-            AnimationPositionStorage.Image img = slot < e.images.size() ? e.images.get(slot) : null;
+            AnimationPositionStorage.Image img = slot < display.size() ? display.get(slot) : null;
             String current = img != null && img.animation != null ? img.animation : "";
-            int[] draft = drafts.computeIfAbsent(idx, k -> new int[]{
-                    img != null ? img.x : 0,
-                    img != null ? img.y : 0,
-                    img != null && img.scale > 0 ? (int) Math.round(img.scale * 100) : 0});
 
             imagesSub.add(entries.startStringDropdownMenu(
                             Component.translatable("inventorygif.config.animations.image", slot + 1), current)
@@ -240,7 +237,7 @@ public final class InventoryGifConfigScreen {
                         if (v.equals(current)) {
                             return;
                         }
-                        e.inherit = false;
+                        materializeImages(e, effective);
                         if (v.isEmpty()) {
                             if (idx < e.images.size()) {
                                 e.images.remove(idx);
@@ -248,7 +245,7 @@ public final class InventoryGifConfigScreen {
                         } else {
                             while (e.images.size() <= idx) {
                                 e.images.add(new AnimationPositionStorage.Image(
-                                        AnimationLibrary.DEFAULT_NAME, draft[0], draft[1], 0.0));
+                                        AnimationLibrary.DEFAULT_NAME, 0, 0, 0.0));
                             }
                             e.images.get(idx).animation = v;
                         }
@@ -261,10 +258,10 @@ public final class InventoryGifConfigScreen {
                             img != null ? img.x : 0)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
-                        if (idx >= e.images.size() || v == e.images.get(idx).x) {
+                        if (idx >= display.size() || v == display.get(idx).x) {
                             return;
                         }
-                        e.inherit = false;
+                        materializeImages(e, effective);
                         e.images.get(idx).x = v;
                         AnimationPositionStorage.save();
                     })
@@ -275,10 +272,10 @@ public final class InventoryGifConfigScreen {
                             img != null ? img.y : 0)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
-                        if (idx >= e.images.size() || v == e.images.get(idx).y) {
+                        if (idx >= display.size() || v == display.get(idx).y) {
                             return;
                         }
-                        e.inherit = false;
+                        materializeImages(e, effective);
                         e.images.get(idx).y = v;
                         AnimationPositionStorage.save();
                     })
@@ -290,10 +287,10 @@ public final class InventoryGifConfigScreen {
                     .setMin(0.0).setMax(10.0)
                     .setTooltip(Component.translatable("inventorygif.config.animations.image.scale.tooltip"))
                     .setSaveConsumer(v -> {
-                        if (idx >= e.images.size() || Math.abs(v - e.images.get(idx).scale) < 1.0E-9) {
+                        if (idx >= display.size() || Math.abs(v - display.get(idx).scale) < 1.0E-9) {
                             return;
                         }
-                        e.inherit = false;
+                        materializeImages(e, effective);
                         e.images.get(idx).scale = v;
                         AnimationPositionStorage.save();
                     })
@@ -302,6 +299,17 @@ public final class InventoryGifConfigScreen {
 
         list.add(imagesSub.build());
         return list;
+    }
+
+    /** Copies the effective (possibly inherited) images into the node, turning inheritance off. */
+    private static void materializeImages(AnimationPositionStorage.Entry node,
+                                          AnimationPositionStorage.Entry effective) {
+        if (!node.inherit && node.images.size() == effective.images.size()) {
+            return; // already explicit and aligned
+        }
+        node.images.clear();
+        effective.images.forEach(i -> node.images.add(i.copy()));
+        node.inherit = false;
     }
 
     /** Groups entries by parent key for tree building. */

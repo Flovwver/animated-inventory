@@ -129,15 +129,24 @@ public final class AnimationDragHandler {
         }
         if (event.getScreen() == dragScreen && dragIndex >= 0) {
             // Save the clamped on-screen position of the dragged image only.
+            // If the node was inheriting, the effective (parent) images are
+            // materialized into it first so the indices line up.
             AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(dragScreen);
+            AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffective(dragScreen);
             List<AnimationMapping.ImageSpec> specs = AnimationMapping.resolveAll(dragScreen);
-            if (dragIndex < specs.size() && dragIndex < entry.images.size()) {
+            if (dragIndex < specs.size()) {
+                if (entry.inherit || entry.images.size() != effective.images.size()) {
+                    entry.images.clear();
+                    effective.images.forEach(i -> entry.images.add(i.copy()));
+                    entry.inherit = false;
+                }
                 AnimationMapping.ImageSpec spec = specs.get(dragIndex);
                 int[] clamped = InventoryGifRenderer.clampToWindow(
                         spec.spec(), currentX, currentY, dragScreen);
-                entry.inherit = false;
-                entry.images.get(dragIndex).x = clamped[0];
-                entry.images.get(dragIndex).y = clamped[1];
+                if (dragIndex < entry.images.size()) {
+                    entry.images.get(dragIndex).x = clamped[0];
+                    entry.images.get(dragIndex).y = clamped[1];
+                }
                 AnimationPositionStorage.save();
             }
             event.setCanceled(true);
