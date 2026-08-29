@@ -5,6 +5,7 @@ import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
 import net.minecraft.client.gui.screens.Screen;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.network.chat.Component;
@@ -118,8 +119,77 @@ public final class InventoryGifConfigScreen {
                 .build());
 
         addAnimationCategory(builder, entries);
+        addAnimationEditorCategory(builder, entries);
 
         return builder.build();
+    }
+
+    /**
+     * "Sprite editor" category: one block of int fields per animation, writing
+     * {@code name.json} next to the PNG immediately when a value is changed.
+     */
+    private static void addAnimationEditorCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
+        ConfigCategory category = builder.getOrCreateCategory(
+                Component.translatable("inventorygif.config.category.editor"));
+
+        category.addEntry(entries.startTextDescription(
+                        Component.translatable("inventorygif.config.editor.description"))
+                .build());
+
+        var allAnimations = AnimationLibrary.animations();
+        if (allAnimations.isEmpty()) {
+            category.addEntry(entries.startTextDescription(
+                            Component.translatable("inventorygif.config.animations.empty"))
+                    .build());
+            return;
+        }
+
+        // Draft values per animation: field consumers write the full draft, so
+        // changing several fields before closing the screen never loses edits.
+        Map<String, int[]> drafts = new HashMap<>();
+
+        for (AnimationLibrary.AnimationMeta meta : allAnimations.values()) {
+            Component tooltip = Component.literal(meta.png().toString());
+            int[] draft = drafts.computeIfAbsent(meta.name(), k -> new int[]{
+                    meta.frameCount(), meta.frameWidth(), meta.frameHeight(), (int) meta.frameDurationMs()});
+
+            category.addEntry(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameCount", meta.name()),
+                            meta.frameCount())
+                    .setMin(1).setMax(1024).setTooltip(tooltip)
+                    .setSaveConsumer(v -> {
+                        draft[0] = v;
+                        AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
+                    })
+                    .build());
+            category.addEntry(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameWidth", meta.name()),
+                            meta.frameWidth())
+                    .setMin(1).setMax(2048).setTooltip(tooltip)
+                    .setSaveConsumer(v -> {
+                        draft[1] = v;
+                        AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
+                    })
+                    .build());
+            category.addEntry(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameHeight", meta.name()),
+                            meta.frameHeight())
+                    .setMin(1).setMax(2048).setTooltip(tooltip)
+                    .setSaveConsumer(v -> {
+                        draft[2] = v;
+                        AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
+                    })
+                    .build());
+            category.addEntry(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameDurationMs", meta.name()),
+                            (int) meta.frameDurationMs())
+                    .setMin(10).setMax(60000).setTooltip(tooltip)
+                    .setSaveConsumer(v -> {
+                        draft[3] = v;
+                        AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
+                    })
+                    .build());
+        }
     }
 
     /**

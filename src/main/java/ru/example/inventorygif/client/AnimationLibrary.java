@@ -1,6 +1,7 @@
 package ru.example.inventorygif.client;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import net.neoforged.fml.loading.FMLPaths;
 import ru.example.inventorygif.InventoryGif;
@@ -78,6 +79,39 @@ public final class AnimationLibrary {
         return animations().containsKey(name);
     }
 
+    /** Writes the metadata JSON next to the animation's PNG and rescans. */
+    public static void writeMeta(String name, int frameCount, int frameWidth,
+                                 int frameHeight, long frameDurationMs) {
+        AnimationMeta meta = animations().get(name);
+        if (meta == null) {
+            return;
+        }
+        writeMetaFile(meta.png().resolveSibling(name + ".json"),
+                frameCount, frameWidth, frameHeight, frameDurationMs);
+        forceRescan();
+    }
+
+    /** Forces the next {@link #animations()} call to rescan the folder. */
+    public static void forceRescan() {
+        nextScanMs = 0;
+    }
+
+    /** Writes the metadata JSON with pretty printing; clamps the values. */
+    private static void writeMetaFile(Path json, int frameCount, int frameWidth,
+                                      int frameHeight, long frameDurationMs) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("frameCount", Math.max(1, Math.min(1024, frameCount)));
+        obj.addProperty("frameWidth", Math.max(1, Math.min(2048, frameWidth)));
+        obj.addProperty("frameHeight", Math.max(1, Math.min(2048, frameHeight)));
+        obj.addProperty("frameDurationMs", Math.max(10, Math.min(60000, frameDurationMs)));
+        try {
+            Files.writeString(json, new GsonBuilder().setPrettyPrinting().create().toJson(obj));
+            InventoryGif.LOGGER.info("Wrote animation meta {}", json);
+        } catch (IOException e) {
+            InventoryGif.LOGGER.warn("Could not write animation meta {}: {}", json, e.toString());
+        }
+    }
+
     private static void scan() {
         try {
             Files.createDirectories(DIR);
@@ -114,13 +148,24 @@ public final class AnimationLibrary {
 
     @Nullable
     private static AnimationMeta readMeta(String name, Path png) {
-        int frameCount = InventoryGifConfig.FRAME_COUNT.get();
-        int frameWidth = 0;
-        int frameHeight = 0;
+        int[] dims = imageSize(png);
+        if (dims == null) {
+            return null;
+        }
+
+        int defaultFrameCount = Math.max(1, InventoryGifConfig.FRAME_COUNT.get());
+        // Derived fallbacks from the image itself.
+        int frameCount = defaultFrameCount;
+        int frameWidth = dims[0];
+        int frameHeight = Math.max(1, (int) Math.ceil(dims[1] / (double) defaultFrameCount));
         long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
 
-        // Optional JSON sidecar overrides the derived/default values.
+        // Optional JSON sidecar overrides the derived/default values; create it
+        // with the derived values when missing, so the user always has an example.
         Path json = png.resolveSibling(name + ".json");
+        if (!Files.isRegularFile(json)) {
+            writeMetaFile(json, frameCount, frameWidth, frameHeight, frameDurationMs);
+        }
         if (Files.isRegularFile(json)) {
             try (Reader reader = Files.newBufferedReader(json)) {
                 JsonObject obj = GSON.fromJson(reader, JsonObject.class);
@@ -143,22 +188,10 @@ public final class AnimationLibrary {
             }
         }
 
-        // Missing frame size: derive from the image (width = image width,
-        // height = image height / frameCount).
-        if (frameWidth <= 0 || frameHeight <= 0) {
-            int[] dims = imageSize(png);
-            if (dims == null) {
-                return null;
-            }
-            if (frameWidth <= 0) {
-                frameWidth = dims[0];
-            }
-            if (frameHeight <= 0) {
-                frameHeight = Math.max(1, dims[1] / Math.max(1, frameCount));
-            }
-        }
-
-        frameCount = Math.max(1, frameCount);
+        frameCount = Math.max(1, Math.min(1024, frameCount));
+        frameWidth = Math.max(1, Math.min(2048, frameWidth));
+        frameHeight = Math.max(1, Math.min(2048, frameHeight));
+        frameDurationMs = Math.max(10, Math.min(60000, frameDurationMs));
         return new AnimationMeta(name, png, frameCount, frameWidth, frameHeight, frameDurationMs);
     }
 
