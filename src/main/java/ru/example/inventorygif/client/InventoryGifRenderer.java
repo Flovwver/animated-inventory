@@ -29,7 +29,9 @@ import ru.example.inventorygif.InventoryGif;
  * ContainerScreenEvent.Render.Background / Render.Foreground from inside
  * AbstractContainerScreen.render(). Foreground fires after all screen content but
  * before tooltips and the dragged item stack, which is exactly where an overlay
- * next to the inventory should be drawn.
+ * next to the inventory should be drawn. Note: at that point the pose matrix is
+ * still translated by (leftPos, topPos), so screen-space coordinates must be
+ * converted back before translating (see the render method below).
  *
  * The event is fired on the game event bus (NeoForge#EVENT_BUS), client side only.
  * This class is registered automatically by the @EventBusSubscriber annotation;
@@ -151,7 +153,11 @@ public final class InventoryGifRenderer {
         float v = frame * frameSize; // frames are stacked vertically in the sheet
 
         guiGraphics.pose().pushPose();
-        guiGraphics.pose().translate(originX, originY, 0);
+        // ContainerScreenEvent.Render.Foreground fires while the pose is still
+        // translated by (leftPos, topPos), so convert the screen-space origin
+        // back into that coordinate space, otherwise the sprite would be drawn
+        // at twice the GUI offset (visible position != hit-test position).
+        guiGraphics.pose().translate(originX - screen.getGuiLeft(), originY - screen.getGuiTop(), 0);
         guiGraphics.pose().scale(scale, scale, 1.0f);
 
         if (debugPlaceholder) {
