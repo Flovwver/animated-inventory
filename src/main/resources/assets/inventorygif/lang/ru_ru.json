@@ -17,6 +17,8 @@
   "inventorygif.config.texturePath.tooltip": "Путь к PNG со sprite sheet относительно папки игры (или абсолютный). Файл перечитывается автоматически при изменении.",
   "inventorygif.config.screenMode": "Режим экранов",
   "inventorygif.config.screenMode.tooltip": "player = только инвентарь выживания и творческий; all = все контейнерные экраны (сундуки, механизмы, модовые GUI).",
+  "inventorygif.config.dragToMove": "Перетаскивание анимации",
+  "inventorygif.config.dragToMove.tooltip": "Разрешить двигать анимацию мышью: ЛКМ — перетащить (позиция запоминается для каждого инвентаря отдельно; если своей позиции нет, берётся позиция инвентаря выживания), ПКМ — сбросить позицию этого экрана.",
   "inventorygif.config.debugDrawPlaceholder": "Отладочный квадрат",
   "inventorygif.config.debugDrawPlaceholder.tooltip": "Рисовать полупрозрачный квадрат вместо текстуры — для проверки позиции и масштаба."
 }

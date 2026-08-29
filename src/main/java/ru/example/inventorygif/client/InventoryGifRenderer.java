@@ -3,6 +3,7 @@ package ru.example.inventorygif.client;
 import com.mojang.blaze3d.platform.Window;
 import net.minecraft.Util;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -34,6 +35,12 @@ import ru.example.inventorygif.InventoryGif;
  * This class is registered automatically by the @EventBusSubscriber annotation;
  * the bus is determined automatically (the deprecated bus= attribute is ignored).
  *
+ * Position resolution (see {@link #resolveOffsets}): a position dragged and saved
+ * for this exact screen wins; otherwise the position saved for the survival
+ * inventory is reused; otherwise the {@code xOffset}/{@code yOffset} config
+ * defaults apply. Dragging is handled by {@link AnimationDragHandler} and saved
+ * positions live in {@link AnimationPositionStorage}.
+ *
  * All parameters (offsets, scale, frame timing/count/size, texture path, debug flag)
  * come from the client config: {@code config/inventorygif-client.toml}
  * (see {@link InventoryGifConfig}). The sprite sheet is loaded from the instance
@@ -45,23 +52,79 @@ public final class InventoryGifRenderer {
     private InventoryGifRenderer() {
     }
 
+    /** True if the animation is drawn on this screen under the current screenMode. */
+    static boolean isAnimatedScreen(AbstractContainerScreen<?> screen) {
+        final String screenMode = InventoryGifConfig.SCREEN_MODE.get().trim();
+        return "all".equalsIgnoreCase(screenMode)
+                || screen instanceof InventoryScreen
+                || screen instanceof CreativeModeInventoryScreen;
+    }
+
+    /** On-screen edge length of the animation square, in GUI pixels. */
+    static int scaledSize() {
+        return Math.round(InventoryGifConfig.FRAME_SIZE.get() * InventoryGifConfig.SCALE.get().floatValue());
+    }
+
+    /**
+     * Resolves the {xOffset, yOffset} for the screen: live drag value while
+     * dragging, then the position saved for this exact screen, then the position
+     * saved for the survival inventory, then the config defaults.
+     */
+    static int[] resolveOffsets(AbstractContainerScreen<?> screen) {
+        int[] drag = AnimationDragHandler.activeDragOffsets(screen);
+        if (drag != null) {
+            return drag;
+        }
+        int[] saved = AnimationPositionStorage.get(screen.getClass().getName());
+        if (saved != null) {
+            return saved;
+        }
+        saved = AnimationPositionStorage.get(AnimationPositionStorage.SURVIVAL_KEY);
+        if (saved != null) {
+            return saved;
+        }
+        return new int[]{InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get()};
+    }
+
+    /**
+     * Computes the on-screen origin {x, y} of the animation for the given offsets.
+     *
+     * While dragging the origin is clamped inside the window. Otherwise the
+     * legacy fallback applies: if the right edge would overflow the window, the
+     * animation flips to the free space on the left of the inventory GUI.
+     */
+    static int[] computeOrigin(AbstractContainerScreen<?> screen, int xOffset, int yOffset) {
+        Window window = screen.getMinecraft().getWindow();
+        int scaled = scaledSize();
+        int originX = screen.getGuiLeft() + xOffset;
+        int originY = screen.getGuiTop() + yOffset;
+
+        if (AnimationDragHandler.isDragging()) {
+            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaled));
+            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaled));
+        } else {
+            if (originX + scaled > window.getGuiScaledWidth()) {
+                originX = screen.getGuiLeft() - scaled - 2;
+            }
+            if (originY + scaled > window.getGuiScaledHeight()) {
+                originY = Math.max(0, window.getGuiScaledHeight() - scaled);
+            }
+        }
+        return new int[]{originX, originY};
+    }
+
     @SubscribeEvent
     public static void onRenderInventoryForeground(ContainerScreenEvent.Render.Foreground event) {
         AbstractContainerScreen<?> screen = event.getContainerScreen();
 
         // screenMode from config: "player" = survival/creative inventory, "all" = any container screen.
-        final String screenMode = InventoryGifConfig.SCREEN_MODE.get().trim();
-        if (!"all".equalsIgnoreCase(screenMode)
-                && !(screen instanceof InventoryScreen)
-                && !(screen instanceof CreativeModeInventoryScreen)) {
+        if (!isAnimatedScreen(screen)) {
             return;
         }
 
         GuiGraphics guiGraphics = event.getGuiGraphics();
 
         // All parameters come from config/inventorygif-client.toml (InventoryGifConfig).
-        final int xOffset = InventoryGifConfig.X_OFFSET.get();
-        final int yOffset = InventoryGifConfig.Y_OFFSET.get();
         final float scale = InventoryGifConfig.SCALE.get().floatValue();
         final long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
         final int frameCount = InventoryGifConfig.FRAME_COUNT.get();
@@ -71,20 +134,13 @@ public final class InventoryGifRenderer {
         // Load/reload the sprite sheet from the instance directory (throttled internally).
         AnimationTextureManager.tick();
 
-        int originX = screen.getGuiLeft() + xOffset;
-        int originY = screen.getGuiTop() + yOffset;
+        // Drop a stale drag if its screen was closed without a release event.
+        AnimationDragHandler.ensureScreen(screen);
 
-        // Keep the animation on-screen: if the right edge would overflow the window,
-        // fall back to the free space on the left of the inventory GUI instead.
-        Window window = screen.getMinecraft().getWindow();
-        int scaledWidth = Math.round(frameSize * scale);
-        int scaledHeight = Math.round(frameSize * scale);
-        if (originX + scaledWidth > window.getGuiScaledWidth()) {
-            originX = screen.getGuiLeft() - scaledWidth - 2;
-        }
-        if (originY + scaledHeight > window.getGuiScaledHeight()) {
-            originY = Math.max(0, window.getGuiScaledHeight() - scaledHeight);
-        }
+        int[] offsets = resolveOffsets(screen);
+        int[] origin = computeOrigin(screen, offsets[0], offsets[1]);
+        int originX = origin[0];
+        int originY = origin[1];
 
         // Current frame from wall-clock time — no stored state, always loops.
         int frame = (int) ((Util.getMillis() / frameDurationMs) % frameCount);

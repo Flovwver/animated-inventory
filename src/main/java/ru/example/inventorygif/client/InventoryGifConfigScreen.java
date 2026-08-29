@@ -98,6 +98,14 @@ public final class InventoryGifConfigScreen {
                 .build());
 
         general.addEntry(entries.startBooleanToggle(
+                        Component.translatable("inventorygif.config.dragToMove"),
+                        InventoryGifConfig.DRAG_TO_MOVE.get())
+                .setDefaultValue(true)
+                .setTooltip(Component.translatable("inventorygif.config.dragToMove.tooltip"))
+                .setSaveConsumer(InventoryGifConfig.DRAG_TO_MOVE::set)
+                .build());
+
+        general.addEntry(entries.startBooleanToggle(
                         Component.translatable("inventorygif.config.debugDrawPlaceholder"),
                         InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get())
                 .setDefaultValue(false)

@@ -17,6 +17,8 @@
   "inventorygif.config.texturePath.tooltip": "Path to the sprite sheet PNG, relative to the game directory (or absolute). The file is re-read automatically when it changes on disk.",
   "inventorygif.config.screenMode": "Screen Mode",
   "inventorygif.config.screenMode.tooltip": "player = survival and creative inventory only; all = every container screen (chests, machines, modded GUIs).",
+  "inventorygif.config.dragToMove": "Drag to Move",
+  "inventorygif.config.dragToMove.tooltip": "Allow moving the animation with the mouse: LMB — drag (the position is remembered per container screen; screens without their own position reuse the survival inventory one), RMB — reset the position of the current screen.",
   "inventorygif.config.debugDrawPlaceholder": "Debug Placeholder",
   "inventorygif.config.debugDrawPlaceholder.tooltip": "Draw a translucent placeholder square instead of the texture, to verify position and scale."
 }

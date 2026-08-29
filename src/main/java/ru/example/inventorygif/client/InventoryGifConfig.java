@@ -59,6 +59,14 @@ public final class InventoryGifConfig {
                     "\"all\" = every container screen: chests, machines, modded GUIs (accessories etc.).")
             .define("screenMode", "player");
 
+    /** Allow moving the animation by dragging it with the left mouse button. */
+    public static final ModConfigSpec.BooleanValue DRAG_TO_MOVE = BUILDER
+            .comment("Allow moving the animation by dragging it with the left mouse button.",
+                    "The position is remembered per container screen: screens without their own",
+                    "position reuse the survival inventory one, then these xOffset/yOffset defaults.",
+                    "Right-click the animation to reset the position of the current screen.")
+            .define("dragToMove", true);
+
     /** Debug helper: draw a translucent placeholder square instead of the texture. */
     public static final ModConfigSpec.BooleanValue DEBUG_DRAW_PLACEHOLDER = BUILDER
             .comment("Debug: draw a translucent placeholder square instead of the texture,",
