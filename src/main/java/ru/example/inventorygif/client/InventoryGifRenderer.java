@@ -109,6 +109,10 @@ public final class InventoryGifRenderer {
             if (originY + scaled > window.getGuiScaledHeight()) {
                 originY = Math.max(0, window.getGuiScaledHeight() - scaled);
             }
+            // Safety net: never leave the animation fully off-screen (bad config or
+            // saved value), otherwise it could never be grabbed again with the mouse.
+            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaled));
+            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaled));
         }
         return new int[]{originX, originY};
     }
