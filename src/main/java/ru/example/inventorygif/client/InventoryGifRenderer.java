@@ -86,8 +86,8 @@ public final class InventoryGifRenderer {
         if (drag != null) {
             return drag;
         }
-        AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(screen);
-        return new int[]{entry.x, entry.y};
+        AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffective(screen);
+        return new int[]{effective.x, effective.y};
     }
 
     /**

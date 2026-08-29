@@ -117,10 +117,12 @@ public final class AnimationDragHandler {
             return;
         }
         if (event.getScreen() == dragScreen) {
-            // Save the clamped on-screen position, not the raw drag offset.
+            // Save the clamped on-screen position to the title node and make it
+            // explicit (inheritance off), so the drag result is not overridden.
             int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY,
                     InventoryGifRenderer.resolveSpec(dragScreen));
             AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(dragScreen);
+            entry.inherit = false;
             entry.x = origin[0] - dragScreen.getGuiLeft();
             entry.y = origin[1] - dragScreen.getGuiTop();
             AnimationPositionStorage.save();

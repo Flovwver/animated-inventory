@@ -1,24 +1,32 @@
 package ru.example.inventorygif.client;
 
+import me.shedaniel.clothconfig2.api.AbstractConfigListEntry;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.network.chat.Component;
 
 /**
  * In-game settings screen, opened via the "Config" button in the NeoForge mod list.
  *
- * Built with Cloth Config API. Every entry is bound to a {@link InventoryGifConfig}
- * value: the screen shows the live value, and pressing "Done" writes changes back
- * to the ModConfigSpec, which NeoForge then saves to
- * {@code config/inventorygif-client.toml} automatically.
+ * Built with Cloth Config API. Three categories:
+ * - General: global rendering options (bound to {@link InventoryGifConfig}).
+ * - Animations: a collapsible tree of per-menu settings — base inventories,
+ *   then mod -> menu -> title nodes, each with animation binding, offsets,
+ *   scale and an "inherit from parent" toggle.
+ * - Sprite editor: collapsible per-animation frame parameters, written to
+ *   the animation JSON files.
  */
 public final class InventoryGifConfigScreen {
+
+    private static final String CREATIVE_KEY =
+            "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen";
 
     private InventoryGifConfigScreen() {
     }
@@ -125,7 +133,168 @@ public final class InventoryGifConfigScreen {
     }
 
     /**
-     * "Sprite editor" category: one block of int fields per animation, writing
+     * "Animations" category: a collapsible tree of per-node settings.
+     * Base inventories at the top, then mod -> menu -> title subcategories.
+     */
+    private static void addAnimationCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
+        ConfigCategory category = builder.getOrCreateCategory(
+                Component.translatable("inventorygif.config.category.animations"));
+
+        category.addEntry(entries.startTextDescription(
+                        Component.translatable("inventorygif.config.animations.description"))
+                .build());
+
+        List<String> animationNames = List.copyOf(AnimationLibrary.animations().keySet());
+        if (animationNames.isEmpty()) {
+            category.addEntry(entries.startTextDescription(
+                            Component.translatable("inventorygif.config.animations.empty"))
+                    .build());
+            return;
+        }
+
+        Map<String, AnimationPositionStorage.Entry> all = AnimationPositionStorage.all();
+        Map<String, List<String>> children = groupChildren(all);
+
+        // Base inventories: the root of the fallback chain.
+        var base = entries.startSubCategory(Component.translatable("inventorygif.config.animations.base"));
+        base.setExpanded(true);
+        base.addAll(nodeEntries(AnimationPositionStorage.SURVIVAL_KEY, all, animationNames, entries));
+        base.addAll(nodeEntries(CREATIVE_KEY, all, animationNames, entries));
+        category.addEntry(base.build());
+
+        // Mod-level subtrees.
+        for (String modKey : children.getOrDefault(AnimationPositionStorage.SURVIVAL_KEY, List.of())) {
+            if (!modKey.startsWith("@mod:")) {
+                continue;
+            }
+            category.addEntry(buildNodeSubtree(modKey, all, children, animationNames, entries, 0));
+        }
+    }
+
+    /** Builds a collapsible node: its fields plus child node subtrees. */
+    private static AbstractConfigListEntry buildNodeSubtree(String key,
+                                                            Map<String, AnimationPositionStorage.Entry> all,
+                                                            Map<String, List<String>> children,
+                                                            List<String> animationNames,
+                                                            ConfigEntryBuilder entries, int depth) {
+        AnimationPositionStorage.Entry entry = all.get(key);
+        var sub = entries.startSubCategory(Component.literal(displayLabel(key, entry)));
+        sub.setExpanded(depth <= 0);
+        sub.setTooltip(Component.literal(key));
+        sub.addAll(nodeEntries(key, all, animationNames, entries));
+        for (String child : children.getOrDefault(key, List.of())) {
+            sub.add(buildNodeSubtree(child, all, children, animationNames, entries, depth + 1));
+        }
+        return sub.build();
+    }
+
+    /** Fields of one tree node: inherit toggle, animation binding, offsets, scale. */
+    private static List<AbstractConfigListEntry> nodeEntries(String key,
+                                                             Map<String, AnimationPositionStorage.Entry> all,
+                                                             List<String> animationNames,
+                                                             ConfigEntryBuilder entries) {
+        AnimationPositionStorage.Entry e = all.get(key);
+        List<AbstractConfigListEntry> list = new ArrayList<>();
+
+        if (e.parentKey != null && !e.parentKey.isEmpty()) {
+            list.add(entries.startBooleanToggle(
+                            Component.translatable("inventorygif.config.animations.inherit"), e.inherit)
+                    .setDefaultValue(true)
+                    .setTooltip(Component.translatable("inventorygif.config.animations.inherit.tooltip",
+                            displayLabel(e.parentKey, all.get(e.parentKey))))
+                    .setSaveConsumer(v -> {
+                        e.inherit = v;
+                        AnimationPositionStorage.save();
+                    })
+                    .build());
+        }
+
+        String current = e.animation == null || e.animation.isEmpty()
+                ? AnimationLibrary.DEFAULT_NAME : e.animation;
+        list.add(entries.startStringDropdownMenu(
+                        Component.translatable("inventorygif.config.animations.animation"), current)
+                .setDefaultValue(AnimationLibrary.DEFAULT_NAME)
+                .setSelections(animationNames)
+                .setSuggestionMode(false)
+                .setSaveConsumer(v -> {
+                    e.inherit = false;
+                    e.animation = v;
+                    AnimationPositionStorage.save();
+                })
+                .build());
+
+        list.add(entries.startIntField(
+                        Component.translatable("inventorygif.config.animations.x"), e.x)
+                .setMin(-10000).setMax(10000)
+                .setSaveConsumer(v -> {
+                    e.inherit = false;
+                    e.x = v;
+                    AnimationPositionStorage.save();
+                })
+                .build());
+
+        list.add(entries.startIntField(
+                        Component.translatable("inventorygif.config.animations.y"), e.y)
+                .setMin(-10000).setMax(10000)
+                .setSaveConsumer(v -> {
+                    e.inherit = false;
+                    e.y = v;
+                    AnimationPositionStorage.save();
+                })
+                .build());
+
+        list.add(entries.startDoubleField(
+                        Component.translatable("inventorygif.config.animations.scale"),
+                        e.scale > 0 ? e.scale : 0.0)
+                .setMin(0.0).setMax(10.0)
+                .setTooltip(Component.translatable("inventorygif.config.animations.scale.tooltip"))
+                .setSaveConsumer(v -> {
+                    e.inherit = false;
+                    e.scale = v;
+                    AnimationPositionStorage.save();
+                })
+                .build());
+
+        return list;
+    }
+
+    /** Groups entries by parent key for tree building. */
+    private static Map<String, List<String>> groupChildren(Map<String, AnimationPositionStorage.Entry> all) {
+        Map<String, List<String>> children = new HashMap<>();
+        for (Map.Entry<String, AnimationPositionStorage.Entry> e : all.entrySet()) {
+            String key = e.getKey();
+            if (key.equals(AnimationPositionStorage.SURVIVAL_KEY) || key.equals(CREATIVE_KEY)) {
+                continue;
+            }
+            String parent = e.getValue().parentKey != null && !e.getValue().parentKey.isEmpty()
+                    ? e.getValue().parentKey : AnimationPositionStorage.SURVIVAL_KEY;
+            children.computeIfAbsent(parent, k -> new ArrayList<>()).add(key);
+        }
+        return children;
+    }
+
+    /** Human-readable node title: label, then key-specific fallbacks. */
+    private static String displayLabel(String key, AnimationPositionStorage.Entry entry) {
+        if (entry != null && entry.label != null && !entry.label.isEmpty()) {
+            return entry.label;
+        }
+        if (key.startsWith("@mod:")) {
+            return key.substring("@mod:".length());
+        }
+        if (key.startsWith("@menu:")) {
+            return AnimationPositionStorage.shortName(key.substring("@menu:".length()));
+        }
+        int separator = key.indexOf('|');
+        if (separator >= 0) {
+            String titleKey = key.substring(separator + 1);
+            int lastDot = titleKey.lastIndexOf('.');
+            return lastDot >= 0 ? titleKey.substring(lastDot + 1) : titleKey;
+        }
+        return AnimationPositionStorage.shortName(key);
+    }
+
+    /**
+     * "Sprite editor" category: one collapsible block per animation, writing
      * {@code name.json} next to the PNG immediately when a value is changed.
      */
     private static void addAnimationEditorCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
@@ -149,84 +318,48 @@ public final class InventoryGifConfigScreen {
         Map<String, int[]> drafts = new HashMap<>();
 
         for (AnimationLibrary.AnimationMeta meta : allAnimations.values()) {
-            Component tooltip = Component.literal(meta.png().toString());
+            var sub = entries.startSubCategory(Component.literal(meta.name()));
+            sub.setExpanded(false);
+            sub.setTooltip(Component.literal(meta.png().toString()));
+
             int[] draft = drafts.computeIfAbsent(meta.name(), k -> new int[]{
                     meta.frameCount(), meta.frameWidth(), meta.frameHeight(), (int) meta.frameDurationMs()});
 
-            category.addEntry(entries.startIntField(
-                            Component.translatable("inventorygif.config.editor.frameCount", meta.name()),
-                            meta.frameCount())
-                    .setMin(1).setMax(1024).setTooltip(tooltip)
+            sub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameCount"), meta.frameCount())
+                    .setMin(1).setMax(1024)
                     .setSaveConsumer(v -> {
                         draft[0] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
                     .build());
-            category.addEntry(entries.startIntField(
-                            Component.translatable("inventorygif.config.editor.frameWidth", meta.name()),
-                            meta.frameWidth())
-                    .setMin(1).setMax(2048).setTooltip(tooltip)
+            sub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameWidth"), meta.frameWidth())
+                    .setMin(1).setMax(2048)
                     .setSaveConsumer(v -> {
                         draft[1] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
                     .build());
-            category.addEntry(entries.startIntField(
-                            Component.translatable("inventorygif.config.editor.frameHeight", meta.name()),
-                            meta.frameHeight())
-                    .setMin(1).setMax(2048).setTooltip(tooltip)
+            sub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameHeight"), meta.frameHeight())
+                    .setMin(1).setMax(2048)
                     .setSaveConsumer(v -> {
                         draft[2] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
                     .build());
-            category.addEntry(entries.startIntField(
-                            Component.translatable("inventorygif.config.editor.frameDurationMs", meta.name()),
+            sub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.editor.frameDurationMs"),
                             (int) meta.frameDurationMs())
-                    .setMin(10).setMax(60000).setTooltip(tooltip)
+                    .setMin(10).setMax(60000)
                     .setSaveConsumer(v -> {
                         draft[3] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
                     .build());
-        }
-    }
 
-    /**
-     * "Animations" category: one dropdown per known menu, bound to the per-screen
-     * entry in {@link AnimationPositionStorage}. Menus appear here automatically
-     * after they are opened once in game.
-     */
-    private static void addAnimationCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
-        ConfigCategory category = builder.getOrCreateCategory(
-                Component.translatable("inventorygif.config.category.animations"));
-
-        category.addEntry(entries.startTextDescription(
-                        Component.translatable("inventorygif.config.animations.description"))
-                .build());
-
-        List<String> animationNames = List.copyOf(AnimationLibrary.animations().keySet());
-        if (animationNames.isEmpty()) {
-            category.addEntry(entries.startTextDescription(
-                            Component.translatable("inventorygif.config.animations.empty"))
-                    .build());
-            return;
-        }
-
-        for (Map.Entry<String, AnimationPositionStorage.Entry> e : AnimationPositionStorage.all().entrySet()) {
-            AnimationPositionStorage.Entry entry = e.getValue();
-            String current = entry.animation == null || entry.animation.isEmpty()
-                    ? AnimationLibrary.DEFAULT_NAME : entry.animation;
-
-            String title = entry.label == null || entry.label.isEmpty() ? e.getKey() : entry.label;
-            category.addEntry(entries.startStringDropdownMenu(
-                            Component.literal(title), current)
-                    .setDefaultValue(AnimationLibrary.DEFAULT_NAME)
-                    .setSelections(animationNames)
-                    .setSuggestionMode(false)
-                    .setTooltip(Component.literal(e.getKey()))
-                    .setSaveConsumer(value -> entry.animation = value)
-                    .build());
+            category.addEntry(sub.build());
         }
     }
 }
