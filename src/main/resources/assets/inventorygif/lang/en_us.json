@@ -1,0 +1,22 @@
+{
+  "inventorygif.config.title": "Inventory GIF Settings",
+  "inventorygif.config.category.general": "General",
+  "inventorygif.config.xOffset": "X Offset",
+  "inventorygif.config.xOffset.tooltip": "Horizontal offset from the inventory GUI corner, in GUI pixels. The vanilla inventory is 176 px wide, so 178 places the animation just right of it.",
+  "inventorygif.config.yOffset": "Y Offset",
+  "inventorygif.config.yOffset.tooltip": "Vertical offset from the inventory GUI corner, in GUI pixels.",
+  "inventorygif.config.scale": "Scale",
+  "inventorygif.config.scale.tooltip": "Render scale of the animation. 1.0 = native 128x128 px, 0.75 = 96x96 px on screen.",
+  "inventorygif.config.frameDurationMs": "Frame Duration (ms)",
+  "inventorygif.config.frameDurationMs.tooltip": "How long each animation frame is displayed, in milliseconds (100 ms = 10 fps).",
+  "inventorygif.config.frameCount": "Frame Count",
+  "inventorygif.config.frameCount.tooltip": "Number of frames in the sprite sheet (frames are stacked vertically).",
+  "inventorygif.config.frameSize": "Frame Size",
+  "inventorygif.config.frameSize.tooltip": "Width and height of a single animation frame in pixels (frames must be square).",
+  "inventorygif.config.texturePath": "Texture Path",
+  "inventorygif.config.texturePath.tooltip": "Path to the sprite sheet PNG, relative to the game directory (or absolute). The file is re-read automatically when it changes on disk.",
+  "inventorygif.config.screenMode": "Screen Mode",
+  "inventorygif.config.screenMode.tooltip": "player = survival and creative inventory only; all = every container screen (chests, machines, modded GUIs).",
+  "inventorygif.config.debugDrawPlaceholder": "Debug Placeholder",
+  "inventorygif.config.debugDrawPlaceholder.tooltip": "Draw a translucent placeholder square instead of the texture, to verify position and scale."
+}

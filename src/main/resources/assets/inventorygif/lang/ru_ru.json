@@ -1,0 +1,22 @@
+{
+  "inventorygif.config.title": "Настройки Inventory GIF",
+  "inventorygif.config.category.general": "Основные",
+  "inventorygif.config.xOffset": "Смещение по X",
+  "inventorygif.config.xOffset.tooltip": "Горизонтальное смещение от угла окна инвентаря, в GUI-пикселях. Инвентарь шириной 176 px, значит 178 — вплотную справа от него.",
+  "inventorygif.config.yOffset": "Смещение по Y",
+  "inventorygif.config.yOffset.tooltip": "Вертикальное смещение от угла окна инвентаря, в GUI-пикселях.",
+  "inventorygif.config.scale": "Масштаб",
+  "inventorygif.config.scale.tooltip": "Масштаб анимации. 1.0 = нативные 128x128 px, 0.75 = 96x96 px на экране.",
+  "inventorygif.config.frameDurationMs": "Длительность кадра (мс)",
+  "inventorygif.config.frameDurationMs.tooltip": "Сколько миллисекунд показывается каждый кадр (100 мс = 10 fps).",
+  "inventorygif.config.frameCount": "Число кадров",
+  "inventorygif.config.frameCount.tooltip": "Количество кадров в sprite sheet (кадры расположены вертикально).",
+  "inventorygif.config.frameSize": "Размер кадра",
+  "inventorygif.config.frameSize.tooltip": "Ширина и высота одного кадра в пикселях (кадры квадратные).",
+  "inventorygif.config.texturePath": "Путь к текстуре",
+  "inventorygif.config.texturePath.tooltip": "Путь к PNG со sprite sheet относительно папки игры (или абсолютный). Файл перечитывается автоматически при изменении.",
+  "inventorygif.config.screenMode": "Режим экранов",
+  "inventorygif.config.screenMode.tooltip": "player = только инвентарь выживания и творческий; all = все контейнерные экраны (сундуки, механизмы, модовые GUI).",
+  "inventorygif.config.debugDrawPlaceholder": "Отладочный квадрат",
+  "inventorygif.config.debugDrawPlaceholder.tooltip": "Рисовать полупрозрачный квадрат вместо текстуры — для проверки позиции и масштаба."
+}
