@@ -2,6 +2,7 @@ package ru.example.inventorygif.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.client.gui.screens.Screen;
@@ -34,70 +35,54 @@ import java.util.Set;
  * - {@code <menuClass>|<titleKey>} — settings for one exact screen title
  *   (translation key, or the literal text for anvil-renamed containers).
  *
+ * Every node holds a list of images, each with its own absolute position and
+ * scale; all of them are drawn simultaneously and can be dragged individually.
+ *
  * Every non-base node has {@code parentKey} and an {@code inherit} flag.
- * While {@code inherit} is true the node dynamically uses its parent's values;
+ * While {@code inherit} is true the node dynamically uses its parent's images;
  * editing any value turns inheritance off. New branches are auto-created with
  * inheritance on, so the fallback chain is always
  * title -> menu -> mod -> survival inventory -> config defaults.
  */
 public final class AnimationPositionStorage {
 
-    /** One additional image bound to a node: animation name + offset from the main image. */
-    public static final class Binding {
+    /** One image bound to a node, with its own absolute position and scale. */
+    public static final class Image {
         public String animation;
-        public int dx;
-        public int dy;
-        /** Per-image scale; <= 0 = use the node/main scale. */
+        public int x;
+        public int y;
+        /** Per-image scale; <= 0 = global config scale. */
         public double scale;
 
-        public Binding(String animation, int dx, int dy) {
-            this(animation, dx, dy, 0.0);
-        }
-
-        public Binding(String animation, int dx, int dy, double scale) {
+        public Image(String animation, int x, int y, double scale) {
             this.animation = animation;
-            this.dx = dx;
-            this.dy = dy;
+            this.x = x;
+            this.y = y;
             this.scale = scale;
         }
 
-        Binding copy() {
-            return new Binding(animation, dx, dy, scale);
+        Image copy() {
+            return new Image(animation, x, y, scale);
         }
     }
 
-    /** Per-screen animation settings. */
+    /** Per-node animation settings. */
     public static final class Entry {
-        public int x;
-        public int y;
-        /** Bound animation name (from AnimationLibrary); empty = default. */
-        public String animation;
         /** Human-readable label, filled when the screen is first opened. */
         public String label;
-        /** True = use the parent node's values dynamically. */
+        /** True = use the parent node's images dynamically. */
         public boolean inherit;
-        /** Per-node render scale; <= 0 = use the parent/global value. */
-        public double scale;
         /** Parent node key in the settings tree. */
         public String parentKey;
-        /** Additional images rendered next to the main one (dx from its right edge). */
-        public final List<Binding> extras = new ArrayList<>();
+        /** All images of this node; each has its own position, drawn simultaneously. */
+        public final List<Image> images = new ArrayList<>();
 
-        Entry(int x, int y, String animation, String label, boolean inherit, double scale, String parentKey) {
-            this.x = x;
-            this.y = y;
-            this.animation = animation;
+        Entry(String label, boolean inherit, String parentKey, List<Image> images) {
             this.label = label;
             this.inherit = inherit;
-            this.scale = scale;
             this.parentKey = parentKey;
-        }
-
-        Entry(int x, int y, String animation, String label, boolean inherit, double scale,
-              String parentKey, List<Binding> extras) {
-            this(x, y, animation, label, inherit, scale, parentKey);
-            if (extras != null) {
-                extras.forEach(b -> this.extras.add(b.copy()));
+            if (images != null) {
+                images.forEach(i -> this.images.add(i.copy()));
             }
         }
     }
@@ -173,7 +158,7 @@ public final class AnimationPositionStorage {
     /**
      * Returns the title-level entry for the screen, auto-creating the full
      * branch (mod node -> menu node -> title node) on first access. New nodes
-     * inherit from their parent and copy its current values as a starting point.
+     * inherit from their parent and copy its images as a starting point.
      */
     public static Entry entryFor(Screen screen) {
         ensureBranch(screen);
@@ -197,8 +182,7 @@ public final class AnimationPositionStorage {
         Entry entry = map.get(key);
         if (entry == null) {
             Entry parent = map.get(parentKey);
-            entry = new Entry(parent.x, parent.y, parent.animation, label, true, parent.scale, parentKey,
-                    parent.extras);
+            entry = new Entry(label, true, parentKey, parent.images);
             map.put(key, entry);
             save();
         } else if ((entry.label == null || entry.label.isEmpty()) && titleLabel != null) {
@@ -241,33 +225,25 @@ public final class AnimationPositionStorage {
         for (Map.Entry<String, Entry> e : entries().entrySet()) {
             Entry v = e.getValue();
             JsonObject obj = new JsonObject();
-            obj.addProperty("x", v.x);
-            obj.addProperty("y", v.y);
-            if (v.animation != null && !v.animation.isEmpty()) {
-                obj.addProperty("animation", v.animation);
-            }
             if (v.label != null && !v.label.isEmpty()) {
                 obj.addProperty("label", v.label);
             }
             obj.addProperty("inherit", v.inherit);
-            obj.addProperty("scale", v.scale);
             if (v.parentKey != null && !v.parentKey.isEmpty()) {
                 obj.addProperty("parent", v.parentKey);
             }
-            if (!v.extras.isEmpty()) {
-                var arr = new com.google.gson.JsonArray();
-                for (Binding b : v.extras) {
-                    JsonObject bObj = new JsonObject();
-                    bObj.addProperty("animation", b.animation);
-                    bObj.addProperty("dx", b.dx);
-                    bObj.addProperty("dy", b.dy);
-                    if (b.scale > 0) {
-                        bObj.addProperty("scale", b.scale);
-                    }
-                    arr.add(bObj);
+            JsonArray images = new JsonArray();
+            for (Image img : v.images) {
+                JsonObject imgObj = new JsonObject();
+                imgObj.addProperty("animation", img.animation);
+                imgObj.addProperty("x", img.x);
+                imgObj.addProperty("y", img.y);
+                if (img.scale > 0) {
+                    imgObj.addProperty("scale", img.scale);
                 }
-                obj.add("extras", arr);
+                images.add(imgObj);
             }
+            obj.add("images", images);
             root.add(e.getKey(), obj);
         }
         try {
@@ -289,36 +265,44 @@ public final class AnimationPositionStorage {
         entries = new LinkedHashMap<>();
         seedBaseEntries();
 
+        // The legacy -> images migration needs sprite dimensions from the library.
+        AnimationLibrary.animations();
+
         if (Files.exists(FILE)) {
             try (Reader reader = Files.newBufferedReader(FILE)) {
                 JsonObject root = GSON.fromJson(reader, JsonObject.class);
                 if (root != null) {
                     for (Map.Entry<String, JsonElement> e : root.entrySet()) {
                         JsonObject obj = e.getValue().getAsJsonObject();
-                        int x = obj.has("x") ? obj.get("x").getAsInt() : InventoryGifConfig.X_OFFSET.get();
-                        int y = obj.has("y") ? obj.get("y").getAsInt() : InventoryGifConfig.Y_OFFSET.get();
-                        String animation = obj.has("animation") ? obj.get("animation").getAsString() : "";
                         String label = obj.has("label") ? obj.get("label").getAsString() : "";
                         boolean inherit = obj.has("inherit") && obj.get("inherit").getAsBoolean();
-                        double scale = obj.has("scale") ? obj.get("scale").getAsDouble() : 0.0;
                         String parentKey = obj.has("parent") ? obj.get("parent").getAsString() : null;
-                        Entry entry = new Entry(x, y, animation, label, inherit, scale, parentKey);
-                        if (obj.has("extras") && obj.get("extras").isJsonArray()) {
-                            for (JsonElement el : obj.getAsJsonArray("extras")) {
+
+                        List<Image> images = new ArrayList<>();
+                        if (obj.has("images") && obj.get("images").isJsonArray()) {
+                            for (JsonElement el : obj.getAsJsonArray("images")) {
                                 if (!el.isJsonObject()) {
                                     continue;
                                 }
-                                JsonObject bObj = el.getAsJsonObject();
-                                String anim = bObj.has("animation") ? bObj.get("animation").getAsString() : "";
-                                int dx = bObj.has("dx") ? bObj.get("dx").getAsInt() : 0;
-                                int dy = bObj.has("dy") ? bObj.get("dy").getAsInt() : 0;
-                                double bScale = bObj.has("scale") ? bObj.get("scale").getAsDouble() : 0.0;
-                                if (anim != null && !anim.isEmpty()) {
-                                    entry.extras.add(new Binding(anim, dx, dy, bScale));
-                                }
+                                JsonObject imgObj = el.getAsJsonObject();
+                                String anim = imgObj.has("animation") ? imgObj.get("animation").getAsString() : "";
+                                int ix = imgObj.has("x") ? imgObj.get("x").getAsInt() : 0;
+                                int iy = imgObj.has("y") ? imgObj.get("y").getAsInt() : 0;
+                                double iScale = imgObj.has("scale") ? imgObj.get("scale").getAsDouble() : 0.0;
+                                images.add(new Image(anim, ix, iy, iScale));
                             }
+                        } else {
+                            // Legacy format: main image + relative extras.
+                            int x = obj.has("x") ? obj.get("x").getAsInt() : InventoryGifConfig.X_OFFSET.get();
+                            int y = obj.has("y") ? obj.get("y").getAsInt() : InventoryGifConfig.Y_OFFSET.get();
+                            String animation = obj.has("animation") ? obj.get("animation").getAsString() : "";
+                            double scale = obj.has("scale") ? obj.get("scale").getAsDouble() : 0.0;
+                            JsonArray extras = obj.has("extras") && obj.get("extras").isJsonArray()
+                                    ? obj.getAsJsonArray("extras") : new JsonArray();
+                            images = migrateLegacyImages(animation, x, y, scale, extras);
                         }
-                        entries.put(e.getKey(), entry);
+
+                        entries.put(e.getKey(), new Entry(label, inherit, parentKey, images));
                     }
                 }
             } catch (Exception e) {
@@ -330,6 +314,42 @@ public final class AnimationPositionStorage {
         if (!Files.exists(FILE)) {
             save();
         }
+    }
+
+    /**
+     * Converts the legacy layout (main image + extras with dx/dy relative to its
+     * right edge) into the flat absolute-position image list.
+     */
+    private static List<Image> migrateLegacyImages(String animation, int x, int y,
+                                                   double nodeScale, JsonArray extras) {
+        List<Image> images = new ArrayList<>();
+        String name = animation == null || animation.isEmpty()
+                ? AnimationLibrary.DEFAULT_NAME : animation;
+        AnimationLibrary.AnimationMeta meta = AnimationLibrary.get(name);
+        if (meta == null) {
+            meta = AnimationLibrary.get(AnimationLibrary.DEFAULT_NAME);
+        }
+        double effectiveScale = nodeScale > 0 ? nodeScale : InventoryGifConfig.SCALE.get();
+        int width = meta != null ? Math.round(meta.frameWidth() * (float) effectiveScale) : 96;
+
+        images.add(new Image(name, x, y, nodeScale));
+        if (extras != null) {
+            for (JsonElement el : extras) {
+                if (!el.isJsonObject()) {
+                    continue;
+                }
+                JsonObject bObj = el.getAsJsonObject();
+                String anim = bObj.has("animation") ? bObj.get("animation").getAsString() : "";
+                int dx = bObj.has("dx") ? bObj.get("dx").getAsInt() : 0;
+                int dy = bObj.has("dy") ? bObj.get("dy").getAsInt() : 0;
+                double bScale = bObj.has("scale") ? bObj.get("scale").getAsDouble() : 0.0;
+                if (anim == null || anim.isEmpty()) {
+                    continue;
+                }
+                images.add(new Image(anim, x + width + 2 + dx, y + dy, bScale));
+            }
+        }
+        return images;
     }
 
     /**
@@ -353,10 +373,11 @@ public final class AnimationPositionStorage {
                 String mod = modOf(key);
                 String modKey = MOD_PREFIX + mod;
                 if (!migrated.containsKey(modKey)) {
-                    migrated.put(modKey, new Entry(v.x, v.y, v.animation, mod, true, 0.0, SURVIVAL_KEY));
+                    Entry base = map.get(SURVIVAL_KEY);
+                    migrated.put(modKey, new Entry(mod, true, SURVIVAL_KEY, base.images));
                 }
                 migrated.put(MENU_PREFIX + key,
-                        new Entry(v.x, v.y, v.animation, shortName(key), false, v.scale, modKey));
+                        new Entry(shortName(key), false, modKey, v.images));
             } else {
                 // Title entry: default its parent to the menu node.
                 if (v.parentKey == null || v.parentKey.isEmpty()) {
@@ -370,11 +391,12 @@ public final class AnimationPositionStorage {
 
     /** Creates the two base entries (survival + creative) bound to the default animation. */
     private static void seedBaseEntries() {
-        entries.put(SURVIVAL_KEY, new Entry(InventoryGifConfig.X_OFFSET.get(),
-                InventoryGifConfig.Y_OFFSET.get(), AnimationLibrary.DEFAULT_NAME,
-                "Survival Inventory", false, 0.0, null));
-        entries.put(CREATIVE_KEY, new Entry(InventoryGifConfig.X_OFFSET.get(),
-                InventoryGifConfig.Y_OFFSET.get(), AnimationLibrary.DEFAULT_NAME,
-                "Creative Inventory", false, 0.0, null));
+        List<Image> survivalImages = new ArrayList<>();
+        survivalImages.add(new Image(AnimationLibrary.DEFAULT_NAME,
+                InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get(), 0.0));
+        entries.put(SURVIVAL_KEY, new Entry("Survival Inventory", false, null, survivalImages));
+        entries.put(CREATIVE_KEY, new Entry("Creative Inventory", false, null,
+                List.of(new Image(AnimationLibrary.DEFAULT_NAME,
+                        InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get(), 0.0))));
     }
 }

@@ -10,18 +10,16 @@ import ru.example.inventorygif.InventoryGif;
 import java.util.List;
 
 /**
- * Lets the user move the animation by dragging it with the mouse.
+ * Lets the user move the animation images by dragging them with the mouse.
  *
  * Behaviour (only active when {@code dragToMove} is enabled in the config):
- * - Left-click on the animation starts a drag. The press is consumed so items
- *   in slots under the animation are not picked up.
- * - Dragging updates the offset live; the position is clamped to the window.
- * - Releasing the button saves the offset to {@link AnimationPositionStorage}
- *   under the class name of the current screen, so every container type keeps
- *   its own position.
- * - Right-click on the animation removes the stored position of that screen,
- *   which makes it fall back to the survival inventory position (or the config
- *   defaults if the survival inventory was never moved either).
+ * - Left-click on any image starts a drag of that exact image. The press is
+ *   consumed so items in slots under the image are not picked up.
+ * - Dragging updates the dragged image's position live, clamped to the window;
+ *   other images of the node stay in place.
+ * - Releasing the button writes the position into the node's image entry
+ *   (inheritance off) and saves.
+ * - Right-click on an image resets the whole node to inherit from its parent.
  *
  * Uses ScreenEvent.MouseButtonPressed/Dragged/Released in the Pre phase: unlike
  * the render events, these ARE fired for container screens, and cancelling the
@@ -32,8 +30,11 @@ public final class AnimationDragHandler {
 
     /** Screen currently being dragged on; null when idle. */
     private static AbstractContainerScreen<?> dragScreen;
-    private static int currentOffsetX;
-    private static int currentOffsetY;
+    /** Index of the dragged image within the node's image list. */
+    private static int dragIndex = -1;
+    /** Live (unclamped) position of the dragged image. */
+    private static int currentX;
+    private static int currentY;
     private static double startMouseX;
     private static double startMouseY;
 
@@ -44,9 +45,13 @@ public final class AnimationDragHandler {
         return dragScreen != null;
     }
 
-    /** Live offsets while dragging the given screen, or null when not dragging it. */
-    static int[] activeDragOffsets(AbstractContainerScreen<?> screen) {
-        return dragScreen == screen ? new int[]{currentOffsetX, currentOffsetY} : null;
+    /**
+     * Live position override for the dragged image on the given screen:
+     * {@code {index, x, y}}, or null when not dragging it.
+     */
+    static int[] activeDragImage(AbstractContainerScreen<?> screen) {
+        return dragScreen == screen && dragIndex >= 0
+                ? new int[]{dragIndex, currentX, currentY} : null;
     }
 
     /**
@@ -57,6 +62,7 @@ public final class AnimationDragHandler {
     static void ensureScreen(AbstractContainerScreen<?> screen) {
         if (dragScreen != null && dragScreen != screen) {
             dragScreen = null;
+            dragIndex = -1;
         }
     }
 
@@ -69,42 +75,36 @@ public final class AnimationDragHandler {
             return;
         }
 
-        AnimationMapping.AnimationSpec spec = InventoryGifRenderer.resolveSpec(screen);
-        int[] offsets = InventoryGifRenderer.resolveOffsets(screen);
-
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
 
-        // Hit-test every image of the node (main + extras); dragging moves the
-        // whole node, since extras are positioned relative to the main image.
-        List<InventoryGifRenderer.PlacedImage> images =
-                InventoryGifRenderer.placeImages(screen, offsets[0], offsets[1]);
-        boolean inside = false;
-        for (InventoryGifRenderer.PlacedImage image : images) {
+        // Hit-test every image of the node; each image is dragged individually.
+        List<InventoryGifRenderer.PlacedImage> images = InventoryGifRenderer.placeImages(screen);
+        int hitIndex = -1;
+        for (int i = 0; i < images.size(); i++) {
+            InventoryGifRenderer.PlacedImage image = images.get(i);
             if (mouseX >= image.x() && mouseX < image.x() + InventoryGifRenderer.scaledWidth(image.spec())
                     && mouseY >= image.y() && mouseY < image.y() + InventoryGifRenderer.scaledHeight(image.spec())) {
-                inside = true;
+                hitIndex = i;
                 break;
             }
         }
 
-        if (!inside || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
+        if (hitIndex < 0 || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
         }
 
         if (event.getButton() == 0) {
-            // Start the drag from the position where the main image is actually
-            // drawn (which may be the left-side fallback), so it does not jump.
-            InventoryGifRenderer.PlacedImage main = images.get(0);
+            InventoryGifRenderer.PlacedImage hit = images.get(hitIndex);
             dragScreen = screen;
-            currentOffsetX = main.x() - screen.getGuiLeft();
-            currentOffsetY = main.y() - screen.getGuiTop();
+            dragIndex = hitIndex;
+            currentX = hit.x();
+            currentY = hit.y();
             startMouseX = mouseX;
             startMouseY = mouseY;
             event.setCanceled(true);
         } else if (event.getButton() == 1) {
-            // Right click: reset this screen's position/animation to its tree
-            // fallback (shared menu-class entry, then the survival inventory).
+            // Right click: reset the whole node to inherit from its parent.
             AnimationPositionStorage.resetToFallback(screen);
             event.setCanceled(true);
         }
@@ -115,8 +115,8 @@ public final class AnimationDragHandler {
         if (dragScreen == null || event.getScreen() != dragScreen) {
             return;
         }
-        currentOffsetX += (int) Math.round(event.getMouseX() - startMouseX);
-        currentOffsetY += (int) Math.round(event.getMouseY() - startMouseY);
+        currentX += (int) Math.round(event.getMouseX() - startMouseX);
+        currentY += (int) Math.round(event.getMouseY() - startMouseY);
         startMouseX = event.getMouseX();
         startMouseY = event.getMouseY();
         event.setCanceled(true);
@@ -127,18 +127,22 @@ public final class AnimationDragHandler {
         if (dragScreen == null) {
             return;
         }
-        if (event.getScreen() == dragScreen) {
-            // Save the clamped on-screen position to the title node and make it
-            // explicit (inheritance off), so the drag result is not overridden.
-            int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY,
-                    InventoryGifRenderer.resolveSpec(dragScreen));
+        if (event.getScreen() == dragScreen && dragIndex >= 0) {
+            // Save the clamped on-screen position of the dragged image only.
             AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(dragScreen);
-            entry.inherit = false;
-            entry.x = origin[0] - dragScreen.getGuiLeft();
-            entry.y = origin[1] - dragScreen.getGuiTop();
-            AnimationPositionStorage.save();
+            List<AnimationMapping.ImageSpec> specs = AnimationMapping.resolveAll(dragScreen);
+            if (dragIndex < specs.size() && dragIndex < entry.images.size()) {
+                AnimationMapping.ImageSpec spec = specs.get(dragIndex);
+                int[] clamped = InventoryGifRenderer.clampToWindow(
+                        spec.spec(), currentX, currentY, dragScreen);
+                entry.inherit = false;
+                entry.images.get(dragIndex).x = clamped[0];
+                entry.images.get(dragIndex).y = clamped[1];
+                AnimationPositionStorage.save();
+            }
             event.setCanceled(true);
         }
         dragScreen = null;
+        dragIndex = -1;
     }
 }

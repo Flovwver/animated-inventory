@@ -63,11 +63,6 @@ public final class InventoryGifRenderer {
                 || screen instanceof CreativeModeInventoryScreen;
     }
 
-    /** Animation parameters (metadata + scale) resolved for this screen. */
-    static AnimationMapping.AnimationSpec resolveSpec(AbstractContainerScreen<?> screen) {
-        return AnimationMapping.resolve(screen);
-    }
-
     /** On-screen width of the animation for the given spec, in GUI pixels. */
     static int scaledWidth(AnimationMapping.AnimationSpec spec) {
         return Math.round(spec.frameWidth() * spec.scale());
@@ -78,51 +73,13 @@ public final class InventoryGifRenderer {
         return Math.round(spec.frameHeight() * spec.scale());
     }
 
-    /**
-     * Resolves the {xOffset, yOffset} for the screen: live drag value while
-     * dragging, then the position saved for this exact screen, then the position
-     * saved for the survival inventory, then the config defaults.
-     */
-    static int[] resolveOffsets(AbstractContainerScreen<?> screen) {
-        int[] drag = AnimationDragHandler.activeDragOffsets(screen);
-        if (drag != null) {
-            return drag;
-        }
-        AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffective(screen);
-        return new int[]{effective.x, effective.y};
-    }
-
-    /**
-     * Computes the on-screen origin {x, y} of the animation for the given offsets.
-     *
-     * While dragging the origin is clamped inside the window. Otherwise the
-     * legacy fallback applies: if the right edge would overflow the window, the
-     * animation flips to the free space on the left of the inventory GUI.
-     */
-    static int[] computeOrigin(AbstractContainerScreen<?> screen, int xOffset, int yOffset,
-                               AnimationMapping.AnimationSpec spec) {
+    /** Clamps a position so the image stays fully inside the window. */
+    static int[] clampToWindow(AnimationMapping.AnimationSpec spec, int x, int y,
+                               AbstractContainerScreen<?> screen) {
         Window window = screen.getMinecraft().getWindow();
-        int scaledW = scaledWidth(spec);
-        int scaledH = scaledHeight(spec);
-        int originX = screen.getGuiLeft() + xOffset;
-        int originY = screen.getGuiTop() + yOffset;
-
-        if (AnimationDragHandler.isDragging()) {
-            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaledW));
-            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaledH));
-        } else {
-            if (originX + scaledW > window.getGuiScaledWidth()) {
-                originX = screen.getGuiLeft() - scaledW - 2;
-            }
-            if (originY + scaledH > window.getGuiScaledHeight()) {
-                originY = Math.max(0, window.getGuiScaledHeight() - scaledH);
-            }
-            // Safety net: never leave the animation fully off-screen (bad config or
-            // saved value), otherwise it could never be grabbed again with the mouse.
-            originX = Mth.clamp(originX, 0, Math.max(0, window.getGuiScaledWidth() - scaledW));
-            originY = Mth.clamp(originY, 0, Math.max(0, window.getGuiScaledHeight() - scaledH));
-        }
-        return new int[]{originX, originY};
+        int cx = Mth.clamp(x, 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(spec)));
+        int cy = Mth.clamp(y, 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(spec)));
+        return new int[]{cx, cy};
     }
 
     @SubscribeEvent
@@ -139,10 +96,7 @@ public final class InventoryGifRenderer {
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
 
-        int[] offsets = resolveOffsets(screen);
-        List<PlacedImage> images = placeImages(screen, offsets[0], offsets[1]);
-
-        for (PlacedImage image : images) {
+        for (PlacedImage image : placeImages(screen)) {
             drawImage(guiGraphics, screen, image);
         }
     }
@@ -158,33 +112,26 @@ public final class InventoryGifRenderer {
     }
 
     /**
-     * Resolves and lays out all images of the screen: the main one at the node
-     * position, extras offset from its right edge. Each is clamped on-screen.
+     * Resolves and lays out all images of the screen at their own absolute
+     * positions (clamped inside the window). While dragging, the dragged image
+     * is overridden with the live drag position.
      */
-    static List<PlacedImage> placeImages(AbstractContainerScreen<?> screen, int xOffset, int yOffset) {
+    static List<PlacedImage> placeImages(AbstractContainerScreen<?> screen) {
         List<PlacedImage> result = new ArrayList<>();
         Window window = screen.getMinecraft().getWindow();
 
-        List<AnimationMapping.ImageBinding> bindings = AnimationMapping.resolveAll(screen);
-        AnimationMapping.AnimationSpec mainSpec = bindings.get(0).spec();
-        int[] mainOrigin = computeOrigin(screen, xOffset, yOffset, mainSpec);
-        int mainWidth = scaledWidth(mainSpec);
+        List<AnimationMapping.ImageSpec> specs = AnimationMapping.resolveAll(screen);
+        int[] drag = AnimationDragHandler.activeDragImage(screen);
 
-        for (int i = 0; i < bindings.size(); i++) {
-            AnimationMapping.ImageBinding binding = bindings.get(i);
-            int x;
-            int y;
-            if (i == 0) {
-                x = mainOrigin[0];
-                y = mainOrigin[1];
-            } else {
-                x = mainOrigin[0] + mainWidth + 2 + binding.dx();
-                y = mainOrigin[1] + binding.dy();
-                // Keep extras inside the window too.
-                x = Mth.clamp(x, 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(binding.spec())));
-                y = Mth.clamp(y, 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(binding.spec())));
+        for (int i = 0; i < specs.size(); i++) {
+            AnimationMapping.ImageSpec spec = specs.get(i);
+            int x = Mth.clamp(spec.x(), 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(spec.spec())));
+            int y = Mth.clamp(spec.y(), 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(spec.spec())));
+            if (drag != null && drag[0] == i) {
+                x = Mth.clamp(drag[1], 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(spec.spec())));
+                y = Mth.clamp(drag[2], 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(spec.spec())));
             }
-            result.add(new PlacedImage(binding.spec(), loadFor(binding.spec()), x, y));
+            result.add(new PlacedImage(spec.spec(), loadFor(spec.spec()), x, y));
         }
         return result;
     }

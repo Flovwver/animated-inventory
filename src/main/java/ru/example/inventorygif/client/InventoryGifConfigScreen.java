@@ -18,8 +18,8 @@ import java.util.Map;
  * Built with Cloth Config API. Three categories:
  * - General: global rendering options (bound to {@link InventoryGifConfig}).
  * - Animations: a collapsible tree of per-menu settings — base inventories,
- *   then mod -> menu -> title nodes, each with animation binding, offsets,
- *   scale and an "inherit from parent" toggle.
+ *   then mod -> menu -> title nodes. Every node holds a list of images
+ *   (animation, position, scale) and an "inherit from parent" toggle.
  * - Sprite editor: collapsible per-animation frame parameters, written to
  *   the animation JSON files.
  */
@@ -28,8 +28,8 @@ public final class InventoryGifConfigScreen {
     private static final String CREATIVE_KEY =
             "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen";
 
-    /** Number of extra-image slots per tree node (Cloth Config has no dynamic lists). */
-    private static final int EXTRA_SLOTS = 10;
+    /** Number of image slots per tree node (Cloth Config has no dynamic lists). */
+    private static final int IMAGE_SLOTS = 10;
 
     private InventoryGifConfigScreen() {
     }
@@ -191,7 +191,7 @@ public final class InventoryGifConfigScreen {
         return sub.build();
     }
 
-    /** Fields of one tree node: inherit toggle, animation binding, offsets, scale. */
+    /** Fields of one tree node: inherit toggle plus the list of image slots. */
     private static List<AbstractConfigListEntry> nodeEntries(String key,
                                                              Map<String, AnimationPositionStorage.Entry> all,
                                                              List<String> animationNames,
@@ -212,151 +212,95 @@ public final class InventoryGifConfigScreen {
                     .build());
         }
 
-        String current = e.animation == null || e.animation.isEmpty()
-                ? AnimationLibrary.DEFAULT_NAME : e.animation;
-        list.add(entries.startStringDropdownMenu(
-                        Component.translatable("inventorygif.config.animations.animation"), current)
-                .setDefaultValue(AnimationLibrary.DEFAULT_NAME)
-                .setSelections(animationNames)
-                .setSuggestionMode(false)
-                .setSaveConsumer(v -> {
-                    if (v.equals(current)) {
-                        return; // unchanged: do not flip inheritance on screen close
-                    }
-                    e.inherit = false;
-                    e.animation = v;
-                    AnimationPositionStorage.save();
-                })
-                .build());
+        var imagesSub = entries.startSubCategory(
+                Component.translatable("inventorygif.config.animations.images"));
+        imagesSub.setExpanded(false);
 
-        list.add(entries.startIntField(
-                        Component.translatable("inventorygif.config.animations.x"), e.x)
-                .setMin(-10000).setMax(10000)
-                .setSaveConsumer(v -> {
-                    if (v == e.x) {
-                        return;
-                    }
-                    e.inherit = false;
-                    e.x = v;
-                    AnimationPositionStorage.save();
-                })
-                .build());
+        // Draft positions per image slot: field consumers write the full draft,
+        // so changing several fields before closing the screen never loses edits.
+        Map<Integer, int[]> drafts = new HashMap<>();
+        List<String> options = new ArrayList<>(animationNames);
+        options.add(0, ""); // empty = slot disabled
 
-        list.add(entries.startIntField(
-                        Component.translatable("inventorygif.config.animations.y"), e.y)
-                .setMin(-10000).setMax(10000)
-                .setSaveConsumer(v -> {
-                    if (v == e.y) {
-                        return;
-                    }
-                    e.inherit = false;
-                    e.y = v;
-                    AnimationPositionStorage.save();
-                })
-                .build());
+        for (int slot = 0; slot < IMAGE_SLOTS; slot++) {
+            final int idx = slot;
+            AnimationPositionStorage.Image img = slot < e.images.size() ? e.images.get(slot) : null;
+            String current = img != null && img.animation != null ? img.animation : "";
+            int[] draft = drafts.computeIfAbsent(idx, k -> new int[]{
+                    img != null ? img.x : 0,
+                    img != null ? img.y : 0,
+                    img != null && img.scale > 0 ? (int) Math.round(img.scale * 100) : 0});
 
-        list.add(entries.startDoubleField(
-                        Component.translatable("inventorygif.config.animations.scale"),
-                        e.scale > 0 ? e.scale : 0.0)
-                .setMin(0.0).setMax(10.0)
-                .setTooltip(Component.translatable("inventorygif.config.animations.scale.tooltip"))
-                .setSaveConsumer(v -> {
-                    if (Math.abs(v - e.scale) < 1.0E-9) {
-                        return;
-                    }
-                    e.inherit = false;
-                    e.scale = v;
-                    AnimationPositionStorage.save();
-                })
-                .build());
-
-        // Additional images rendered next to the main one.
-        var extrasSub = entries.startSubCategory(
-                Component.translatable("inventorygif.config.animations.extras"));
-        extrasSub.setExpanded(false);
-        List<String> extraOptions = new ArrayList<>(animationNames);
-        extraOptions.add(0, ""); // empty = slot disabled
-
-        for (int slot = 0; slot < EXTRA_SLOTS; slot++) {
-            final int slotIndex = slot;
-            AnimationPositionStorage.Binding binding =
-                    slot < e.extras.size() ? e.extras.get(slot) : null;
-            String currentExtra = binding != null && binding.animation != null ? binding.animation : "";
-
-            extrasSub.add(entries.startStringDropdownMenu(
-                            Component.translatable("inventorygif.config.animations.extra", slot + 1), currentExtra)
+            imagesSub.add(entries.startStringDropdownMenu(
+                            Component.translatable("inventorygif.config.animations.image", slot + 1), current)
                     .setDefaultValue("")
-                    .setSelections(extraOptions)
+                    .setSelections(options)
                     .setSuggestionMode(false)
                     .setSaveConsumer(v -> {
-                        if (v.equals(currentExtra)) {
+                        if (v.equals(current)) {
                             return;
                         }
                         e.inherit = false;
                         if (v.isEmpty()) {
-                            if (slotIndex < e.extras.size()) {
-                                e.extras.remove(slotIndex);
+                            if (idx < e.images.size()) {
+                                e.images.remove(idx);
                             }
                         } else {
-                            while (e.extras.size() <= slotIndex) {
-                                e.extras.add(new AnimationPositionStorage.Binding(
-                                        AnimationLibrary.DEFAULT_NAME, 0, 0));
+                            while (e.images.size() <= idx) {
+                                e.images.add(new AnimationPositionStorage.Image(
+                                        AnimationLibrary.DEFAULT_NAME, draft[0], draft[1], 0.0));
                             }
-                            e.extras.get(slotIndex).animation = v;
+                            e.images.get(idx).animation = v;
                         }
                         AnimationPositionStorage.save();
                     })
                     .build());
 
-            extrasSub.add(entries.startIntField(
-                            Component.translatable("inventorygif.config.animations.extra.dx"),
-                            binding != null ? binding.dx : 0)
+            imagesSub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.animations.image.x"),
+                            img != null ? img.x : 0)
                     .setMin(-10000).setMax(10000)
-                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.dx.tooltip"))
                     .setSaveConsumer(v -> {
-                        if (slotIndex >= e.extras.size() || v == e.extras.get(slotIndex).dx) {
+                        if (idx >= e.images.size() || v == e.images.get(idx).x) {
                             return;
                         }
                         e.inherit = false;
-                        e.extras.get(slotIndex).dx = v;
+                        e.images.get(idx).x = v;
                         AnimationPositionStorage.save();
                     })
                     .build());
 
-            extrasSub.add(entries.startIntField(
-                            Component.translatable("inventorygif.config.animations.extra.dy"),
-                            binding != null ? binding.dy : 0)
+            imagesSub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.animations.image.y"),
+                            img != null ? img.y : 0)
                     .setMin(-10000).setMax(10000)
-                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.dy.tooltip"))
                     .setSaveConsumer(v -> {
-                        if (slotIndex >= e.extras.size() || v == e.extras.get(slotIndex).dy) {
+                        if (idx >= e.images.size() || v == e.images.get(idx).y) {
                             return;
                         }
                         e.inherit = false;
-                        e.extras.get(slotIndex).dy = v;
+                        e.images.get(idx).y = v;
                         AnimationPositionStorage.save();
                     })
                     .build());
 
-            double currentExtraScale = binding != null && binding.scale > 0 ? binding.scale : 0.0;
-            extrasSub.add(entries.startDoubleField(
-                            Component.translatable("inventorygif.config.animations.extra.scale"),
-                            currentExtraScale)
+            imagesSub.add(entries.startDoubleField(
+                            Component.translatable("inventorygif.config.animations.image.scale"),
+                            img != null && img.scale > 0 ? img.scale : 0.0)
                     .setMin(0.0).setMax(10.0)
-                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.scale.tooltip"))
+                    .setTooltip(Component.translatable("inventorygif.config.animations.image.scale.tooltip"))
                     .setSaveConsumer(v -> {
-                        if (slotIndex >= e.extras.size() || Math.abs(v - e.extras.get(slotIndex).scale) < 1.0E-9) {
+                        if (idx >= e.images.size() || Math.abs(v - e.images.get(idx).scale) < 1.0E-9) {
                             return;
                         }
                         e.inherit = false;
-                        e.extras.get(slotIndex).scale = v;
+                        e.images.get(idx).scale = v;
                         AnimationPositionStorage.save();
                     })
                     .build());
         }
 
-        list.add(extrasSub.build());
-
+        list.add(imagesSub.build());
         return list;
     }
 
