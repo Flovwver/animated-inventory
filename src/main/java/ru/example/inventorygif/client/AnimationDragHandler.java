@@ -7,6 +7,8 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import ru.example.inventorygif.InventoryGif;
 
+import java.util.List;
+
 /**
  * Lets the user move the animation by dragging it with the mouse.
  *
@@ -69,25 +71,34 @@ public final class AnimationDragHandler {
 
         AnimationMapping.AnimationSpec spec = InventoryGifRenderer.resolveSpec(screen);
         int[] offsets = InventoryGifRenderer.resolveOffsets(screen);
-        int[] origin = InventoryGifRenderer.computeOrigin(screen, offsets[0], offsets[1], spec);
-        int width = InventoryGifRenderer.scaledWidth(spec);
-        int height = InventoryGifRenderer.scaledHeight(spec);
 
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
-        boolean inside = mouseX >= origin[0] && mouseX < origin[0] + width
-                && mouseY >= origin[1] && mouseY < origin[1] + height;
+
+        // Hit-test every image of the node (main + extras); dragging moves the
+        // whole node, since extras are positioned relative to the main image.
+        List<InventoryGifRenderer.PlacedImage> images =
+                InventoryGifRenderer.placeImages(screen, offsets[0], offsets[1]);
+        boolean inside = false;
+        for (InventoryGifRenderer.PlacedImage image : images) {
+            if (mouseX >= image.x() && mouseX < image.x() + InventoryGifRenderer.scaledWidth(image.spec())
+                    && mouseY >= image.y() && mouseY < image.y() + InventoryGifRenderer.scaledHeight(image.spec())) {
+                inside = true;
+                break;
+            }
+        }
 
         if (!inside || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
         }
 
         if (event.getButton() == 0) {
-            // Start the drag from the position where the animation is actually
+            // Start the drag from the position where the main image is actually
             // drawn (which may be the left-side fallback), so it does not jump.
+            InventoryGifRenderer.PlacedImage main = images.get(0);
             dragScreen = screen;
-            currentOffsetX = origin[0] - screen.getGuiLeft();
-            currentOffsetY = origin[1] - screen.getGuiTop();
+            currentOffsetX = main.x() - screen.getGuiLeft();
+            currentOffsetY = main.y() - screen.getGuiTop();
             startMouseX = mouseX;
             startMouseY = mouseY;
             event.setCanceled(true);

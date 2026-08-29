@@ -3,6 +3,8 @@ package ru.example.inventorygif.client;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Resolves which animation is drawn on a given screen and with which scale.
@@ -34,11 +36,24 @@ public final class AnimationMapping {
         }
     }
 
+    /** One image to draw: its spec and offset relative to the node origin. */
+    public record ImageBinding(AnimationSpec spec, int dx, int dy) {
+    }
+
     private AnimationMapping() {
     }
 
     /** Resolves the animation for the given screen. */
     public static AnimationSpec resolve(AbstractContainerScreen<?> screen) {
+        return resolveAll(screen).get(0).spec();
+    }
+
+    /**
+     * Resolves all images for the screen: the main animation (dx=dy=0, drawn at
+     * the node position) plus its extras. Bindings pointing to missing
+     * animations are skipped; if the main one is missing the default is used.
+     */
+    public static List<ImageBinding> resolveAll(AbstractContainerScreen<?> screen) {
         AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffective(screen);
 
         String name = effective.animation == null || effective.animation.isEmpty()
@@ -52,7 +67,21 @@ public final class AnimationMapping {
                 ? (float) effective.scale
                 : InventoryGifConfig.SCALE.get().floatValue();
         scale = Math.max(0.05f, Math.min(10.0f, scale));
-        return new AnimationSpec(meta, scale);
+
+        List<ImageBinding> result = new ArrayList<>();
+        AnimationSpec mainSpec = new AnimationSpec(meta, scale);
+        result.add(new ImageBinding(mainSpec, 0, 0));
+
+        for (AnimationPositionStorage.Binding binding : effective.extras) {
+            String extraName = binding.animation == null || binding.animation.isEmpty()
+                    ? AnimationLibrary.DEFAULT_NAME : binding.animation;
+            AnimationLibrary.AnimationMeta extraMeta = AnimationLibrary.get(extraName);
+            if (extraMeta == null) {
+                continue;
+            }
+            result.add(new ImageBinding(new AnimationSpec(extraMeta, scale), binding.dx, binding.dy));
+        }
+        return result;
     }
 
     /** Metadata of the animation bound to the screen, or null if the folder is empty. */

@@ -28,6 +28,9 @@ public final class InventoryGifConfigScreen {
     private static final String CREATIVE_KEY =
             "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen";
 
+    /** Number of extra-image slots per tree node (Cloth Config has no dynamic lists). */
+    private static final int EXTRA_SLOTS = 10;
+
     private InventoryGifConfigScreen() {
     }
 
@@ -266,6 +269,77 @@ public final class InventoryGifConfigScreen {
                     AnimationPositionStorage.save();
                 })
                 .build());
+
+        // Additional images rendered next to the main one.
+        var extrasSub = entries.startSubCategory(
+                Component.translatable("inventorygif.config.animations.extras"));
+        extrasSub.setExpanded(false);
+        List<String> extraOptions = new ArrayList<>(animationNames);
+        extraOptions.add(0, ""); // empty = slot disabled
+
+        for (int slot = 0; slot < EXTRA_SLOTS; slot++) {
+            final int slotIndex = slot;
+            AnimationPositionStorage.Binding binding =
+                    slot < e.extras.size() ? e.extras.get(slot) : null;
+            String currentExtra = binding != null && binding.animation != null ? binding.animation : "";
+
+            extrasSub.add(entries.startStringDropdownMenu(
+                            Component.translatable("inventorygif.config.animations.extra", slot + 1), currentExtra)
+                    .setDefaultValue("")
+                    .setSelections(extraOptions)
+                    .setSuggestionMode(false)
+                    .setSaveConsumer(v -> {
+                        if (v.equals(currentExtra)) {
+                            return;
+                        }
+                        e.inherit = false;
+                        if (v.isEmpty()) {
+                            if (slotIndex < e.extras.size()) {
+                                e.extras.remove(slotIndex);
+                            }
+                        } else {
+                            while (e.extras.size() <= slotIndex) {
+                                e.extras.add(new AnimationPositionStorage.Binding(
+                                        AnimationLibrary.DEFAULT_NAME, 0, 0));
+                            }
+                            e.extras.get(slotIndex).animation = v;
+                        }
+                        AnimationPositionStorage.save();
+                    })
+                    .build());
+
+            extrasSub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.animations.extra.dx"),
+                            binding != null ? binding.dx : 0)
+                    .setMin(-10000).setMax(10000)
+                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.dx.tooltip"))
+                    .setSaveConsumer(v -> {
+                        if (slotIndex >= e.extras.size() || v == e.extras.get(slotIndex).dx) {
+                            return;
+                        }
+                        e.inherit = false;
+                        e.extras.get(slotIndex).dx = v;
+                        AnimationPositionStorage.save();
+                    })
+                    .build());
+
+            extrasSub.add(entries.startIntField(
+                            Component.translatable("inventorygif.config.animations.extra.dy"),
+                            binding != null ? binding.dy : 0)
+                    .setMin(-10000).setMax(10000)
+                    .setTooltip(Component.translatable("inventorygif.config.animations.extra.dy.tooltip"))
+                    .setSaveConsumer(v -> {
+                        if (slotIndex >= e.extras.size() || v == e.extras.get(slotIndex).dy) {
+                            return;
+                        }
+                        e.inherit = false;
+                        e.extras.get(slotIndex).dy = v;
+                        AnimationPositionStorage.save();
+                    })
+                    .build());
+        }
+
+        list.add(extrasSub.build());
 
         return list;
     }

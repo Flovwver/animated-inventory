@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,6 +42,23 @@ import java.util.Set;
  */
 public final class AnimationPositionStorage {
 
+    /** One additional image bound to a node: animation name + offset from the main image. */
+    public static final class Binding {
+        public String animation;
+        public int dx;
+        public int dy;
+
+        public Binding(String animation, int dx, int dy) {
+            this.animation = animation;
+            this.dx = dx;
+            this.dy = dy;
+        }
+
+        Binding copy() {
+            return new Binding(animation, dx, dy);
+        }
+    }
+
     /** Per-screen animation settings. */
     public static final class Entry {
         public int x;
@@ -54,6 +73,8 @@ public final class AnimationPositionStorage {
         public double scale;
         /** Parent node key in the settings tree. */
         public String parentKey;
+        /** Additional images rendered next to the main one (dx from its right edge). */
+        public final List<Binding> extras = new ArrayList<>();
 
         Entry(int x, int y, String animation, String label, boolean inherit, double scale, String parentKey) {
             this.x = x;
@@ -63,6 +84,14 @@ public final class AnimationPositionStorage {
             this.inherit = inherit;
             this.scale = scale;
             this.parentKey = parentKey;
+        }
+
+        Entry(int x, int y, String animation, String label, boolean inherit, double scale,
+              String parentKey, List<Binding> extras) {
+            this(x, y, animation, label, inherit, scale, parentKey);
+            if (extras != null) {
+                extras.forEach(b -> this.extras.add(b.copy()));
+            }
         }
     }
 
@@ -161,7 +190,8 @@ public final class AnimationPositionStorage {
         Entry entry = map.get(key);
         if (entry == null) {
             Entry parent = map.get(parentKey);
-            entry = new Entry(parent.x, parent.y, parent.animation, label, true, parent.scale, parentKey);
+            entry = new Entry(parent.x, parent.y, parent.animation, label, true, parent.scale, parentKey,
+                    parent.extras);
             map.put(key, entry);
             save();
         } else if ((entry.label == null || entry.label.isEmpty()) && titleLabel != null) {
@@ -217,6 +247,17 @@ public final class AnimationPositionStorage {
             if (v.parentKey != null && !v.parentKey.isEmpty()) {
                 obj.addProperty("parent", v.parentKey);
             }
+            if (!v.extras.isEmpty()) {
+                var arr = new com.google.gson.JsonArray();
+                for (Binding b : v.extras) {
+                    JsonObject bObj = new JsonObject();
+                    bObj.addProperty("animation", b.animation);
+                    bObj.addProperty("dx", b.dx);
+                    bObj.addProperty("dy", b.dy);
+                    arr.add(bObj);
+                }
+                obj.add("extras", arr);
+            }
             root.add(e.getKey(), obj);
         }
         try {
@@ -251,7 +292,22 @@ public final class AnimationPositionStorage {
                         boolean inherit = obj.has("inherit") && obj.get("inherit").getAsBoolean();
                         double scale = obj.has("scale") ? obj.get("scale").getAsDouble() : 0.0;
                         String parentKey = obj.has("parent") ? obj.get("parent").getAsString() : null;
-                        entries.put(e.getKey(), new Entry(x, y, animation, label, inherit, scale, parentKey));
+                        Entry entry = new Entry(x, y, animation, label, inherit, scale, parentKey);
+                        if (obj.has("extras") && obj.get("extras").isJsonArray()) {
+                            for (JsonElement el : obj.getAsJsonArray("extras")) {
+                                if (!el.isJsonObject()) {
+                                    continue;
+                                }
+                                JsonObject bObj = el.getAsJsonObject();
+                                String anim = bObj.has("animation") ? bObj.get("animation").getAsString() : "";
+                                int dx = bObj.has("dx") ? bObj.get("dx").getAsInt() : 0;
+                                int dy = bObj.has("dy") ? bObj.get("dy").getAsInt() : 0;
+                                if (anim != null && !anim.isEmpty()) {
+                                    entry.extras.add(new Binding(anim, dx, dy));
+                                }
+                            }
+                        }
+                        entries.put(e.getKey(), entry);
                     }
                 }
             } catch (Exception e) {

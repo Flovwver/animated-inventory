@@ -7,6 +7,8 @@ import net.minecraft.util.Mth;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import java.util.ArrayList;
+import java.util.List;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -134,25 +136,68 @@ public final class InventoryGifRenderer {
 
         GuiGraphics guiGraphics = event.getGuiGraphics();
 
-        // Animation parameters: per-screen binding, falling back to the default animation.
-        final AnimationMapping.AnimationSpec spec = resolveSpec(screen);
-        final float scale = spec.scale();
-        final long frameDurationMs = spec.frameDurationMs();
-        final int frameCount = spec.frameCount();
-        final int frameWidth = spec.frameWidth();
-        final int frameHeight = spec.frameHeight();
-        final boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
-
-        // Load/reload the sprite sheet for this screen (throttled internally).
-        AnimationTextureManager.Loaded loaded = AnimationTextureManager.get(spec.meta());
-
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
 
         int[] offsets = resolveOffsets(screen);
-        int[] origin = computeOrigin(screen, offsets[0], offsets[1], spec);
-        int originX = origin[0];
-        int originY = origin[1];
+        List<PlacedImage> images = placeImages(screen, offsets[0], offsets[1]);
+
+        for (PlacedImage image : images) {
+            drawImage(guiGraphics, screen, image);
+        }
+    }
+
+    /** One image laid out on the screen, ready to draw. */
+    record PlacedImage(AnimationMapping.AnimationSpec spec, AnimationTextureManager.Loaded loaded,
+                       int x, int y) {
+    }
+
+    /** Loads the sprite sheet for a spec (throttled internally). */
+    static AnimationTextureManager.Loaded loadFor(AnimationMapping.AnimationSpec spec) {
+        return AnimationTextureManager.get(spec.meta());
+    }
+
+    /**
+     * Resolves and lays out all images of the screen: the main one at the node
+     * position, extras offset from its right edge. Each is clamped on-screen.
+     */
+    static List<PlacedImage> placeImages(AbstractContainerScreen<?> screen, int xOffset, int yOffset) {
+        List<PlacedImage> result = new ArrayList<>();
+        Window window = screen.getMinecraft().getWindow();
+
+        List<AnimationMapping.ImageBinding> bindings = AnimationMapping.resolveAll(screen);
+        AnimationMapping.AnimationSpec mainSpec = bindings.get(0).spec();
+        int[] mainOrigin = computeOrigin(screen, xOffset, yOffset, mainSpec);
+        int mainWidth = scaledWidth(mainSpec);
+
+        for (int i = 0; i < bindings.size(); i++) {
+            AnimationMapping.ImageBinding binding = bindings.get(i);
+            int x;
+            int y;
+            if (i == 0) {
+                x = mainOrigin[0];
+                y = mainOrigin[1];
+            } else {
+                x = mainOrigin[0] + mainWidth + 2 + binding.dx();
+                y = mainOrigin[1] + binding.dy();
+                // Keep extras inside the window too.
+                x = Mth.clamp(x, 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(binding.spec())));
+                y = Mth.clamp(y, 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(binding.spec())));
+            }
+            result.add(new PlacedImage(binding.spec(), loadFor(binding.spec()), x, y));
+        }
+        return result;
+    }
+
+    /** Draws one animation image (debug placeholder or sprite frame) at its position. */
+    private static void drawImage(GuiGraphics guiGraphics, AbstractContainerScreen<?> screen, PlacedImage image) {
+        AnimationMapping.AnimationSpec spec = image.spec();
+        float scale = spec.scale();
+        int frameCount = spec.frameCount();
+        int frameWidth = spec.frameWidth();
+        int frameHeight = spec.frameHeight();
+        long frameDurationMs = spec.frameDurationMs();
+        boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
 
         // Current frame from wall-clock time — no stored state, always loops.
         int frame = (int) ((Util.getMillis() / frameDurationMs) % frameCount);
@@ -163,7 +208,7 @@ public final class InventoryGifRenderer {
         // translated by (leftPos, topPos), so convert the screen-space origin
         // back into that coordinate space, otherwise the sprite would be drawn
         // at twice the GUI offset (visible position != hit-test position).
-        guiGraphics.pose().translate(originX - screen.getGuiLeft(), originY - screen.getGuiTop(), 0);
+        guiGraphics.pose().translate(image.x() - screen.getGuiLeft(), image.y() - screen.getGuiTop(), 0);
         guiGraphics.pose().scale(scale, scale, 1.0f);
 
         if (debugPlaceholder) {
@@ -173,9 +218,9 @@ public final class InventoryGifRenderer {
                     (frame + 1) * frameHeight / frameCount, 0x80FF0000);
         } else {
             // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
-            guiGraphics.blit(AnimationTextureManager.textureOf(loaded), 0, 0, 0f, v,
+            guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
                     frameWidth, frameHeight,
-                    AnimationTextureManager.widthOf(loaded), AnimationTextureManager.heightOf(loaded));
+                    AnimationTextureManager.widthOf(image.loaded()), AnimationTextureManager.heightOf(image.loaded()));
         }
 
         guiGraphics.pose().popPose();
