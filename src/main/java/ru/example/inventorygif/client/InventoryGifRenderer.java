@@ -160,15 +160,15 @@ public final class InventoryGifRenderer {
         }
 
         if (AnimationTextureManager.isGif(image.loaded())) {
-            // GIF: draw the currently visible frame as a full image with its
-            // own delay — no sprite sheet involved.
+            // GIF: the frame index follows the per-frame delays; the frame is a
+            // vertical slice of the decoded sheet (v = index * frameHeight).
             int frameIndex = AnimationTextureManager.currentGifFrame(image.loaded(), Util.getMillis());
-            guiGraphics.blit(AnimationTextureManager.gifFrameTexture(image.loaded(), frameIndex),
-                    0, 0, 0f, 0f,
+            float v = frameIndex * AnimationTextureManager.gifFrameHeight(image.loaded());
+            guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
                     AnimationTextureManager.gifFrameWidth(image.loaded()),
                     AnimationTextureManager.gifFrameHeight(image.loaded()),
-                    AnimationTextureManager.gifFrameWidth(image.loaded()),
-                    AnimationTextureManager.gifFrameHeight(image.loaded()));
+                    AnimationTextureManager.widthOf(image.loaded()),
+                    AnimationTextureManager.heightOf(image.loaded()));
             guiGraphics.pose().popPose();
             return;
         }
