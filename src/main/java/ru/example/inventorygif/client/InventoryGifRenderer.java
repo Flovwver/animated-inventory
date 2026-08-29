@@ -140,15 +140,9 @@ public final class InventoryGifRenderer {
     private static void drawImage(GuiGraphics guiGraphics, AbstractContainerScreen<?> screen, PlacedImage image) {
         AnimationMapping.AnimationSpec spec = image.spec();
         float scale = spec.scale();
-        int frameCount = spec.frameCount();
         int frameWidth = spec.frameWidth();
         int frameHeight = spec.frameHeight();
-        long frameDurationMs = spec.frameDurationMs();
         boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
-
-        // Current frame from wall-clock time — no stored state, always loops.
-        int frame = (int) ((Util.getMillis() / frameDurationMs) % frameCount);
-        float v = frame * frameHeight; // frames are stacked vertically in the sheet
 
         guiGraphics.pose().pushPose();
         // ContainerScreenEvent.Render.Foreground fires while the pose is still
@@ -159,16 +153,36 @@ public final class InventoryGifRenderer {
         guiGraphics.pose().scale(scale, scale, 1.0f);
 
         if (debugPlaceholder) {
-            // ARGB translucent green rectangle with the frame band highlighted.
+            // ARGB translucent green rectangle.
             guiGraphics.fill(0, 0, frameWidth, frameHeight, 0x8000FF00);
-            guiGraphics.fill(0, frame * frameHeight / frameCount, frameWidth,
-                    (frame + 1) * frameHeight / frameCount, 0x80FF0000);
-        } else {
-            // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
-            guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
-                    frameWidth, frameHeight,
-                    AnimationTextureManager.widthOf(image.loaded()), AnimationTextureManager.heightOf(image.loaded()));
+            guiGraphics.pose().popPose();
+            return;
         }
+
+        if (AnimationTextureManager.isGif(image.loaded())) {
+            // GIF: draw the currently visible frame as a full image with its
+            // own delay — no sprite sheet involved.
+            int frameIndex = AnimationTextureManager.currentGifFrame(image.loaded(), Util.getMillis());
+            guiGraphics.blit(AnimationTextureManager.gifFrameTexture(image.loaded(), frameIndex),
+                    0, 0, 0f, 0f,
+                    AnimationTextureManager.gifFrameWidth(image.loaded()),
+                    AnimationTextureManager.gifFrameHeight(image.loaded()),
+                    AnimationTextureManager.gifFrameWidth(image.loaded()),
+                    AnimationTextureManager.gifFrameHeight(image.loaded()));
+            guiGraphics.pose().popPose();
+            return;
+        }
+
+        int frameCount = spec.frameCount();
+        long frameDurationMs = spec.frameDurationMs();
+        // Current frame from wall-clock time — no stored state, always loops.
+        int frame = (int) ((Util.getMillis() / frameDurationMs) % frameCount);
+        float v = frame * frameHeight; // frames are stacked vertically in the sheet
+
+        // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
+        guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
+                frameWidth, frameHeight,
+                AnimationTextureManager.widthOf(image.loaded()), AnimationTextureManager.heightOf(image.loaded()));
 
         guiGraphics.pose().popPose();
     }

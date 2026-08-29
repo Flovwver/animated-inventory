@@ -19,24 +19,27 @@ import java.util.stream.Stream;
 /**
  * Library of user animations living in {@code <game>/inventorygif/animations/}.
  *
- * Every animation is a {@code name.png} sprite sheet plus an optional
- * {@code name.json} metadata file:
+ * Every animation is a {@code name.png} sprite sheet or a {@code name.gif}, plus
+ * an optional {@code name.json} metadata file (JSON wins over the derived/self
+ * described values):
  * <pre>{ "frameCount": 8, "frameWidth": 128, "frameHeight": 128, "frameDurationMs": 100 }</pre>
  *
- * Frames may be non-square (frameWidth and frameHeight are independent). If the
- * JSON is missing, the frame size is derived from the image itself (frameWidth =
- * image width, frameHeight = image height / default frame count).
+ * PNG frames may be non-square (frameWidth and frameHeight are independent). If
+ * the JSON is missing, the frame size is derived from the image itself (frameWidth =
+ * image width, frameHeight = image height / default frame count). GIFs are self
+ * describing: frames and per-frame delays come straight from the file, so a GIF
+ * plays at its original speed.
  *
  * On first run the folder is created and the built-in example animation (PNG +
  * JSON) is extracted into it, so the user sees a working example of the format.
  * The folder is re-scanned automatically every ~2 seconds, so dropping a new
- * PNG + JSON makes it available in the settings screen without a restart.
+ * PNG/GIF + JSON makes it available in the settings screen without a restart.
  */
 public final class AnimationLibrary {
 
     /** Metadata of one animation sprite sheet. */
     public record AnimationMeta(String name, Path png, int frameCount, int frameWidth,
-                                int frameHeight, long frameDurationMs) {
+                                int frameHeight, long frameDurationMs, boolean gif) {
     }
 
     /** Name of the built-in example animation (extracted on first run). */
@@ -127,12 +130,16 @@ public final class AnimationLibrary {
 
         Map<String, AnimationMeta> found = new LinkedHashMap<>();
         try (Stream<Path> files = Files.list(DIR)) {
-            files.filter(p -> p.getFileName().toString().toLowerCase().endsWith(".png"))
+            files.filter(p -> {
+                        String n = p.getFileName().toString().toLowerCase();
+                        return n.endsWith(".png") || n.endsWith(".gif");
+                    })
                     .sorted()
-                    .forEach(png -> {
-                        String name = png.getFileName().toString();
-                        name = name.substring(0, name.length() - ".png".length());
-                        AnimationMeta meta = readMeta(name, png);
+                    .forEach(p -> {
+                        String fileName = p.getFileName().toString();
+                        int dot = fileName.lastIndexOf('.');
+                        String name = dot >= 0 ? fileName.substring(0, dot) : fileName;
+                        AnimationMeta meta = readMeta(name, p);
                         if (meta != null) {
                             found.put(name, meta);
                         }
@@ -147,23 +154,38 @@ public final class AnimationLibrary {
     }
 
     @Nullable
-    private static AnimationMeta readMeta(String name, Path png) {
-        int[] dims = imageSize(png);
-        if (dims == null) {
-            return null;
-        }
+    private static AnimationMeta readMeta(String name, Path file) {
+        boolean isGif = file.getFileName().toString().toLowerCase().endsWith(".gif");
 
-        int defaultFrameCount = Math.max(1, InventoryGifConfig.FRAME_COUNT.get());
-        // Derived fallbacks from the image itself.
-        int frameCount = defaultFrameCount;
-        int frameWidth = dims[0];
-        int frameHeight = Math.max(1, (int) Math.ceil(dims[1] / (double) defaultFrameCount));
+        int frameCount;
+        int frameWidth;
+        int frameHeight;
         long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
 
-        // Optional JSON sidecar overrides the derived/default values; create it
-        // with the derived values when missing, so the user always has an example.
-        Path json = png.resolveSibling(name + ".json");
-        if (!Files.isRegularFile(json)) {
+        if (isGif) {
+            int[] gifHdr = gifHeader(file);
+            if (gifHdr == null) {
+                return null;
+            }
+            frameCount = Math.max(1, countGifFrames(file));
+            frameWidth = gifHdr[0];
+            frameHeight = gifHdr[1];
+        } else {
+            int[] dims = imageSize(file);
+            if (dims == null) {
+                return null;
+            }
+            int defaultFrameCount = Math.max(1, InventoryGifConfig.FRAME_COUNT.get());
+            frameCount = defaultFrameCount;
+            frameWidth = dims[0];
+            frameHeight = Math.max(1, (int) Math.ceil(dims[1] / (double) defaultFrameCount));
+        }
+
+        // Optional JSON sidecar overrides the derived values. For PNG it is
+        // auto-created with the derived values as a working example; GIFs are
+        // self describing, so the file is only read if the user added it.
+        Path json = file.resolveSibling(name + ".json");
+        if (!isGif && !Files.isRegularFile(json)) {
             writeMetaFile(json, frameCount, frameWidth, frameHeight, frameDurationMs);
         }
         if (Files.isRegularFile(json)) {
@@ -192,7 +214,98 @@ public final class AnimationLibrary {
         frameWidth = Math.max(1, Math.min(2048, frameWidth));
         frameHeight = Math.max(1, Math.min(2048, frameHeight));
         frameDurationMs = Math.max(10, Math.min(60000, frameDurationMs));
-        return new AnimationMeta(name, png, frameCount, frameWidth, frameHeight, frameDurationMs);
+        return new AnimationMeta(name, file, frameCount, frameWidth, frameHeight, frameDurationMs, isGif);
+    }
+
+    /** Reads GIF logical screen width and height from the header (no decode). */
+    @Nullable
+    private static int[] gifHeader(Path file) {
+        // GIF header: 6-byte signature, then logical screen width(2 LE), height(2 LE).
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] header = in.readNBytes(10);
+            if (header.length < 10) {
+                return null;
+            }
+            int width = (header[6] & 0xFF) | ((header[7] & 0xFF) << 8);
+            int height = (header[8] & 0xFF) | ((header[9] & 0xFF) << 8);
+            return width > 0 && height > 0 ? new int[]{width, height} : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Counts GIF frames by walking the block structure without fully decoding.
+     * Returns 1 on any parsing problem so the animation still renders.
+     */
+    private static int countGifFrames(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            skip(in, 6); // signature
+            byte[] ls = in.readNBytes(7); // logical screen descriptor
+            if (ls.length < 7) {
+                return 1;
+            }
+            int flags = ls[4] & 0xFF;
+            if ((flags & 0x80) != 0) {
+                skip(in, 3L * (1 << ((flags & 0x07) + 1))); // global color table
+            }
+            int frames = 0;
+            while (true) {
+                int id = in.read();
+                if (id < 0 || id == 0x3B) { // EOF or trailer
+                    break;
+                }
+                if (id == 0x2C) { // image descriptor -> one frame
+                    frames++;
+                    byte[] desc = in.readNBytes(9);
+                    if (desc.length < 9) {
+                        break;
+                    }
+                    int f = desc[8] & 0xFF;
+                    if ((f & 0x80) != 0) {
+                        skip(in, 3L * (1 << ((f & 0x07) + 1))); // local color table
+                    }
+                    if (in.read() < 0) { // LZW min code size
+                        break;
+                    }
+                    skipSubBlocks(in);
+                } else if (id == 0x21) { // extension block
+                    if (in.read() < 0) {
+                        break;
+                    }
+                    skipSubBlocks(in);
+                } else {
+                    break; // unexpected byte
+                }
+            }
+            return Math.max(1, frames);
+        } catch (IOException e) {
+            return 1;
+        }
+    }
+
+    private static void skipSubBlocks(InputStream in) throws IOException {
+        while (true) {
+            int size = in.read();
+            if (size <= 0) {
+                return;
+            }
+            skip(in, size);
+        }
+    }
+
+    private static void skip(InputStream in, long n) throws IOException {
+        long remaining = n;
+        while (remaining > 0) {
+            long skipped = in.skip(remaining);
+            if (skipped > 0) {
+                remaining -= skipped;
+            } else if (in.read() < 0) {
+                return;
+            } else {
+                remaining--;
+            }
+        }
     }
 
     /** Reads PNG dimensions from the file header without decoding the image. */
