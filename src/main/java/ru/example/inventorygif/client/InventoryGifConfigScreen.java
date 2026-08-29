@@ -174,7 +174,7 @@ public final class InventoryGifConfigScreen {
         }
     }
 
-    /** Builds a collapsible node: its fields plus child node subtrees. */
+    /** Builds a collapsible node: a "Default" branch with its own fields plus child node subtrees. */
     private static AbstractConfigListEntry buildNodeSubtree(String key,
                                                             Map<String, AnimationPositionStorage.Entry> all,
                                                             Map<String, List<String>> children,
@@ -184,7 +184,15 @@ public final class InventoryGifConfigScreen {
         var sub = entries.startSubCategory(Component.literal(displayLabel(key, entry)));
         sub.setExpanded(depth <= 0);
         sub.setTooltip(Component.literal(key));
-        sub.addAll(nodeEntries(key, all, animationNames, entries));
+
+        // The node's own values live in a nested "Default" branch, so the node
+        // itself is a clean container holding Default + child nodes.
+        var defaultBranch = entries.startSubCategory(
+                Component.translatable("inventorygif.config.animations.default"));
+        defaultBranch.setExpanded(depth <= 0);
+        defaultBranch.addAll(nodeEntries(key, all, animationNames, entries));
+        sub.add(defaultBranch.build());
+
         for (String child : children.getOrDefault(key, List.of())) {
             sub.add(buildNodeSubtree(child, all, children, animationNames, entries, depth + 1));
         }

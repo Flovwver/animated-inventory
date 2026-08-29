@@ -6,6 +6,7 @@
   "inventorygif.config.animations.description": "Bind animations to menus. Every menu you open in game appears here automatically. Put your own sprite sheets into the inventorygif/animations/ folder next to the game directory (an example animation.png + animation.json is already there).",
   "inventorygif.config.animations.empty": "The inventorygif/animations/ folder is empty — drop a PNG there (plus an optional JSON with frame parameters).",
   "inventorygif.config.animations.base": "Base (inherited by the rest)",
+  "inventorygif.config.animations.default": "Default (this node's values)",
   "inventorygif.config.animations.inherit": "Inherit from parent",
   "inventorygif.config.animations.inherit.tooltip": "On — this node uses its parent's values (%s). Off — uses its own values below.",
   "inventorygif.config.animations.animation": "Animation",
