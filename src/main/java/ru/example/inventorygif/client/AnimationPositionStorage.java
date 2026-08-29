@@ -8,6 +8,8 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.neoforged.fml.loading.FMLPaths;
 import ru.example.inventorygif.InventoryGif;
 
@@ -34,6 +36,14 @@ import java.util.Map;
  *
  * The map key is the menu class name for containers (e.g. {@code ...ChestMenu})
  * or the screen class name for the player inventories.
+ *
+ * For containers the key also includes the screen title, resolved as the
+ * translation key when available ({@code ChestMenu|container.chest}) or the
+ * literal text otherwise. A container renamed on an anvil gets a literal title
+ * (verified in vanilla bytecode: AnvilMenu creates Component.literal), so each
+ * custom name gets its own independent settings. Resolution falls back through
+ * a tree: exact title key -> menu class (shared, from older configs) ->
+ * survival inventory -> config defaults.
  */
 public final class AnimationPositionStorage {
 
@@ -67,28 +77,49 @@ public final class AnimationPositionStorage {
     private AnimationPositionStorage() {
     }
 
-    /** Mapping key for the screen: menu class for containers, screen class otherwise. */
+    /**
+     * Mapping key for the screen. Containers get {@code menuClass|titleKey};
+     * player inventories keep the plain screen class name (stable across the
+     * different menu instances).
+     */
     public static String keyOf(Screen screen) {
         if (screen instanceof AbstractContainerScreen<?> container
                 && !(screen instanceof InventoryScreen)
                 && !(screen instanceof CreativeModeInventoryScreen)
                 && container.getMenu() != null) {
-            return container.getMenu().getClass().getName();
+            return container.getMenu().getClass().getName() + "|" + titleKeyOf(screen);
         }
         return screen.getClass().getName();
     }
 
     /**
+     * Stable title identity: the translation key when the title is translatable
+     * (standard containers, modded menus), otherwise the literal text — which is
+     * exactly the case for containers renamed on an anvil (vanilla creates
+     * Component.literal for those).
+     */
+    public static String titleKeyOf(Screen screen) {
+        Component title = screen.getTitle();
+        if (title != null && title.getContents() instanceof TranslatableContents translatable) {
+            return translatable.getKey();
+        }
+        return title != null ? title.getString() : "";
+    }
+
+    /**
      * Returns the entry for the screen, creating it on first access.
-     * New container entries inherit animation and position from the survival
-     * inventory entry; the label is the human-readable menu title.
+     *
+     * Resolution tree: exact key ({@code menuClass|titleKey}) -> menu class
+     * without title (shared entries from older configs) -> survival inventory ->
+     * config defaults. The newly created entry inherits position and animation
+     * from the resolved fallback, so every menu starts from a sensible place.
      */
     public static Entry entryFor(Screen screen) {
         String key = keyOf(screen);
         Map<String, Entry> map = entries();
         Entry entry = map.get(key);
         if (entry == null) {
-            Entry base = map.get(SURVIVAL_KEY);
+            Entry base = fallbackEntry(key);
             String label = screen.getTitle() != null ? screen.getTitle().getString() : "";
             entry = new Entry(base.x, base.y, base.animation, label);
             map.put(key, entry);
@@ -98,6 +129,34 @@ public final class AnimationPositionStorage {
             save();
         }
         return entry;
+    }
+
+    /** Tree fallback for the given key: menu class -> survival -> config defaults. */
+    private static Entry fallbackEntry(String key) {
+        Map<String, Entry> map = entries();
+        Entry found = null;
+        int separator = key.indexOf('|');
+        if (separator > 0) {
+            found = map.get(key.substring(0, separator));
+        }
+        if (found == null) {
+            found = map.get(SURVIVAL_KEY);
+        }
+        if (found == null) {
+            found = new Entry(InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get(),
+                    AnimationLibrary.DEFAULT_NAME, "");
+        }
+        return found;
+    }
+
+    /** Resets the screen's position and animation to its tree fallback. */
+    public static void resetToFallback(Screen screen) {
+        Entry entry = entryFor(screen);
+        Entry base = fallbackEntry(keyOf(screen));
+        entry.x = base.x;
+        entry.y = base.y;
+        entry.animation = base.animation;
+        save();
     }
 
     /** Raw access for the settings screen: all known entries (creates base ones). */

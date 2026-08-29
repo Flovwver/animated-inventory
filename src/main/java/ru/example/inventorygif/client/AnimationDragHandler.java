@@ -92,13 +92,9 @@ public final class AnimationDragHandler {
             startMouseY = mouseY;
             event.setCanceled(true);
         } else if (event.getButton() == 1) {
-            // Right click: reset this screen's position to the survival inventory one.
-            AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(screen);
-            AnimationPositionStorage.Entry base = AnimationPositionStorage.all()
-                    .get(AnimationPositionStorage.SURVIVAL_KEY);
-            entry.x = base.x;
-            entry.y = base.y;
-            AnimationPositionStorage.save();
+            // Right click: reset this screen's position/animation to its tree
+            // fallback (shared menu-class entry, then the survival inventory).
+            AnimationPositionStorage.resetToFallback(screen);
             event.setCanceled(true);
         }
     }
