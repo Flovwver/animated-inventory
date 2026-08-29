@@ -62,9 +62,14 @@ public final class InventoryGifRenderer {
                 || screen instanceof CreativeModeInventoryScreen;
     }
 
-    /** On-screen edge length of the animation square, in GUI pixels. */
-    static int scaledSize() {
-        return Math.round(InventoryGifConfig.FRAME_SIZE.get() * InventoryGifConfig.SCALE.get().floatValue());
+    /** Animation parameters (texture, frames, scale) resolved for this screen. */
+    static AnimationMapping.AnimationSpec resolveSpec(AbstractContainerScreen<?> screen) {
+        return AnimationMapping.resolve(screen);
+    }
+
+    /** On-screen edge length of the animation square for the given spec, in GUI pixels. */
+    static int scaledSize(AnimationMapping.AnimationSpec spec) {
+        return Math.round(spec.frameSize() * spec.scale());
     }
 
     /**
@@ -95,9 +100,10 @@ public final class InventoryGifRenderer {
      * legacy fallback applies: if the right edge would overflow the window, the
      * animation flips to the free space on the left of the inventory GUI.
      */
-    static int[] computeOrigin(AbstractContainerScreen<?> screen, int xOffset, int yOffset) {
+    static int[] computeOrigin(AbstractContainerScreen<?> screen, int xOffset, int yOffset,
+                               AnimationMapping.AnimationSpec spec) {
         Window window = screen.getMinecraft().getWindow();
-        int scaled = scaledSize();
+        int scaled = scaledSize(spec);
         int originX = screen.getGuiLeft() + xOffset;
         int originY = screen.getGuiTop() + yOffset;
 
@@ -130,21 +136,22 @@ public final class InventoryGifRenderer {
 
         GuiGraphics guiGraphics = event.getGuiGraphics();
 
-        // All parameters come from config/inventorygif-client.toml (InventoryGifConfig).
-        final float scale = InventoryGifConfig.SCALE.get().floatValue();
-        final long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
-        final int frameCount = InventoryGifConfig.FRAME_COUNT.get();
-        final int frameSize = InventoryGifConfig.FRAME_SIZE.get();
+        // Animation parameters: per-screen mapping, falling back to the global config.
+        final AnimationMapping.AnimationSpec spec = resolveSpec(screen);
+        final float scale = spec.scale();
+        final long frameDurationMs = spec.frameDurationMs();
+        final int frameCount = spec.frameCount();
+        final int frameSize = spec.frameSize();
         final boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
 
-        // Load/reload the sprite sheet from the instance directory (throttled internally).
-        AnimationTextureManager.tick();
+        // Load/reload the sprite sheet for this screen (throttled internally).
+        AnimationTextureManager.Loaded loaded = AnimationTextureManager.get(spec.texturePath());
 
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
 
         int[] offsets = resolveOffsets(screen);
-        int[] origin = computeOrigin(screen, offsets[0], offsets[1]);
+        int[] origin = computeOrigin(screen, offsets[0], offsets[1], spec);
         int originX = origin[0];
         int originY = origin[1];
 
@@ -167,8 +174,8 @@ public final class InventoryGifRenderer {
                     (frame + 1) * frameSize / frameCount, 0x80FF0000);
         } else {
             // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
-            guiGraphics.blit(AnimationTextureManager.getTexture(), 0, 0, 0f, v, frameSize, frameSize,
-                    AnimationTextureManager.getTextureWidth(), AnimationTextureManager.getTextureHeight());
+            guiGraphics.blit(AnimationTextureManager.textureOf(loaded), 0, 0, 0f, v, frameSize, frameSize,
+                    AnimationTextureManager.widthOf(loaded), AnimationTextureManager.heightOf(loaded));
         }
 
         guiGraphics.pose().popPose();

@@ -67,9 +67,10 @@ public final class AnimationDragHandler {
             return;
         }
 
+        AnimationMapping.AnimationSpec spec = InventoryGifRenderer.resolveSpec(screen);
         int[] offsets = InventoryGifRenderer.resolveOffsets(screen);
-        int[] origin = InventoryGifRenderer.computeOrigin(screen, offsets[0], offsets[1]);
-        int size = InventoryGifRenderer.scaledSize();
+        int[] origin = InventoryGifRenderer.computeOrigin(screen, offsets[0], offsets[1], spec);
+        int size = InventoryGifRenderer.scaledSize(spec);
 
         double mouseX = event.getMouseX();
         double mouseY = event.getMouseY();
@@ -115,7 +116,8 @@ public final class AnimationDragHandler {
         }
         if (event.getScreen() == dragScreen) {
             // Save the clamped on-screen position, not the raw drag offset.
-            int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY);
+            int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY,
+                    InventoryGifRenderer.resolveSpec(dragScreen));
             AnimationPositionStorage.set(dragScreen.getClass().getName(),
                     origin[0] - dragScreen.getGuiLeft(), origin[1] - dragScreen.getGuiTop());
             event.setCanceled(true);
