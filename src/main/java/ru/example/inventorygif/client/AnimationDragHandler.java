@@ -1,8 +1,6 @@
 package ru.example.inventorygif.client;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -60,25 +58,6 @@ public final class AnimationDragHandler {
         }
     }
 
-    /** Debug helper: reports click position vs animation rect to chat and the log. */
-    private static void debugClick(ScreenEvent.MouseButtonPressed.Pre event,
-                                   AbstractContainerScreen<?> screen, boolean inside) {
-        int[] offsets = InventoryGifRenderer.resolveOffsets(screen);
-        int[] origin = InventoryGifRenderer.computeOrigin(screen, offsets[0], offsets[1]);
-        int size = InventoryGifRenderer.scaledSize();
-        String msg = String.format(
-                "[InventoryGIF] click btn=%d mouse=(%.1f, %.1f) | anim x=%d..%d y=%d..%d (size=%d, offset=%d,%d) | %s | %s",
-                event.getButton(), event.getMouseX(), event.getMouseY(),
-                origin[0], origin[0] + size, origin[1], origin[1] + size,
-                size, offsets[0], offsets[1],
-                inside ? "INSIDE" : "outside",
-                screen.getClass().getSimpleName());
-        InventoryGif.LOGGER.info(msg);
-        if (Minecraft.getInstance().player != null) {
-            Minecraft.getInstance().player.displayClientMessage(Component.literal(msg), false);
-        }
-    }
-
     @SubscribeEvent
     public static void onMousePressed(ScreenEvent.MouseButtonPressed.Pre event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) {
@@ -96,9 +75,6 @@ public final class AnimationDragHandler {
         double mouseY = event.getMouseY();
         boolean inside = mouseX >= origin[0] && mouseX < origin[0] + size
                 && mouseY >= origin[1] && mouseY < origin[1] + size;
-
-        // Temporary debug: report every click so we can see why dragging misses.
-        debugClick(event, screen, inside);
 
         if (!inside || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
@@ -120,21 +96,10 @@ public final class AnimationDragHandler {
         }
     }
 
-    /** Debug flag: log only the first drag event per drag session. */
-    private static boolean loggedDrag;
-
     @SubscribeEvent
     public static void onMouseDragged(ScreenEvent.MouseDragged.Pre event) {
         if (dragScreen == null || event.getScreen() != dragScreen) {
             return;
-        }
-        if (!loggedDrag) {
-            loggedDrag = true;
-            InventoryGif.LOGGER.info("[InventoryGIF] drag event ok, mouse=({}, {})", event.getMouseX(), event.getMouseY());
-            if (Minecraft.getInstance().player != null) {
-                Minecraft.getInstance().player.displayClientMessage(
-                        Component.literal("[InventoryGIF] dragging..."), false);
-            }
         }
         currentOffsetX += (int) Math.round(event.getMouseX() - startMouseX);
         currentOffsetY += (int) Math.round(event.getMouseY() - startMouseY);
@@ -153,12 +118,8 @@ public final class AnimationDragHandler {
             int[] origin = InventoryGifRenderer.computeOrigin(dragScreen, currentOffsetX, currentOffsetY);
             AnimationPositionStorage.set(dragScreen.getClass().getName(),
                     origin[0] - dragScreen.getGuiLeft(), origin[1] - dragScreen.getGuiTop());
-            InventoryGif.LOGGER.info("[InventoryGIF] drag released, saved offset=({}, {}) for {}",
-                    origin[0] - dragScreen.getGuiLeft(), origin[1] - dragScreen.getGuiTop(),
-                    dragScreen.getClass().getSimpleName());
             event.setCanceled(true);
         }
         dragScreen = null;
-        loggedDrag = false;
     }
 }
