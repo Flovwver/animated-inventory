@@ -1,0 +1,957 @@
+Ок, делаем через `bytedeco/javacv` (обёртка над FFmpeg с нативными `libavif`/`libaom`/`dav1d`). Учитывая, что декодирование AV1-кадров ощутимо тяжелее GIF/PNG, я сразу вынес его в отдельный поток, чтобы не подвешивать рендер-тред на пару сотен кадров.
+
+## 1. Зависимость (build.gradle)
+
+```gradle
+dependencies {
+    // ...существующие зависимости...
+
+    implementation "org.bytedeco:javacv:1.5.10"
+
+    // Берём natives только под нужные платформы, а не весь ffmpeg-platform —
+    // тот тянет ~150+ МБ на все ОС сразу.
+    implementation "org.bytedeco:ffmpeg:6.1.1-1.5.10:windows-x86_64"
+    implementation "org.bytedeco:ffmpeg:6.1.1-1.5.10:linux-x86_64"
+    implementation "org.bytedeco:ffmpeg:6.1.1-1.5.10:macosx-x86_64"
+    implementation "org.bytedeco:ffmpeg:6.1.1-1.5.10:macosx-arm64"
+}
+```
+
+**Важно для NeoForge:** обычный `implementation` не кладёт зависимость внутрь мод-джарника — на билд-окружении разработчика всё работает (classpath), а у игрока при обычном моде без встроенного classloader-фикса зависимости просто не будет. Нужно завернуть через `jarJar` (штатный механизм NeoForge для «jar-in-jar»):
+
+```gradle
+jarJar.enable()
+
+dependencies {
+    implementation(jarJar("org.bytedeco:javacv:[1.5.10,1.6.0)")) { jarJar.pin(it, "1.5.10") }
+    implementation(jarJar("org.bytedeco:ffmpeg:[6.1.1-1.5.10,)"))
+    // + классификаторы платформ так же через jarJar(...)
+}
+```
+
+Точный синтаксис зависит от версии NeoForge Gradle-плагина, который вы используете — если пришлёте свой `build.gradle`, подгоню под него точнее. Это реальная развилка: без jar-in-jar/шейдинга мод у пользователей просто не соберёт классы бытедеко и упадёт с `NoClassDefFoundError` при первом обращении к AVIF.
+
+**Честно про цену:** даже с 4 платформенными классификаторами это добавит десятки МБ к джарнику. Лицензии — `dav1d` (BSD-2), `libaom` (BSD-2+patent grant), сам FFmpeg-сборка от bytedeco по умолчанию LGPL (без `--enable-gpl`), так что с юридической стороны нормально, но раздутый джарник и более долгий первый запуск — реальный trade-off, соглашались же на него сознательно.
+
+## 2. `AnimationLibrary.java` — распознавание `.avif`
+
+```java
+package ru.example.inventorygif.client;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import net.neoforged.fml.loading.FMLPaths;
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import ru.example.inventorygif.InventoryGif;
+
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.stream.Stream;
+
+/**
+ * Library of user animations living in {@code <game>/inventorygif/animations/}.
+ *
+ * Every animation is a {@code name.png} sprite sheet, a {@code name.gif}, or a
+ * {@code name.avif} (animated AVIF, decoded via bytedeco/FFmpeg — see
+ * {@link AnimationTextureManager}), plus an optional {@code name.json}
+ * metadata file (JSON wins over the derived/self described values). PNG is
+ * NOT self describing and gets a working-example JSON auto-written; GIF and
+ * AVIF are self describing and are only overridden if the user adds a JSON
+ * by hand.
+ */
+public final class AnimationLibrary {
+
+    /** Which container/codec an animation's file is. */
+    public enum Format {PNG, GIF, AVIF}
+
+    /** Metadata of one animation sprite sheet. */
+    public record AnimationMeta(String name, Path png, int frameCount, int frameWidth,
+                                int frameHeight, long frameDurationMs, Format format) {
+        public boolean gif() {
+            return format == Format.GIF;
+        }
+
+        public boolean avif() {
+            return format == Format.AVIF;
+        }
+    }
+
+    /** Name of the built-in example animation (extracted on first run). */
+    public static final String DEFAULT_NAME = "animation";
+
+    private static final Gson GSON = new Gson();
+    private static final Path DIR = FMLPaths.GAMEDIR.get().resolve("inventorygif").resolve("animations");
+
+    private static final String EXAMPLE_PNG_CLASSPATH = "/assets/inventorygif/textures/gui/animation.png";
+    private static final String EXAMPLE_JSON_CLASSPATH = "/assets/inventorygif/example_animation.json";
+
+    /** How often the folder is re-scanned, in milliseconds. */
+    private static final long RESCAN_INTERVAL_MS = 2000L;
+
+    private static final Map<String, AnimationMeta> animations = new LinkedHashMap<>();
+    private static long nextScanMs;
+    private static boolean exampleExtracted;
+
+    /** Caches AVIF probe results per file (mtime-checked) — probing spins up FFmpeg, not free. */
+    private record ProbeCache(long mtime, int[] info) {
+    }
+
+    private static final Map<Path, ProbeCache> AVIF_PROBE_CACHE = new HashMap<>();
+
+    private AnimationLibrary() {
+    }
+
+    /** All known animations, keyed by name. Scans the folder on first call, then throttled. */
+    public static Map<String, AnimationMeta> animations() {
+        long now = System.currentTimeMillis();
+        if (now >= nextScanMs) {
+            nextScanMs = now + RESCAN_INTERVAL_MS;
+            scan();
+        }
+        return animations;
+    }
+
+    /** Metadata of the given animation, or null if it does not exist on disk. */
+    @Nullable
+    public static AnimationMeta get(String name) {
+        return animations().get(name);
+    }
+
+    /** True if the animation exists in the folder. */
+    public static boolean exists(String name) {
+        return animations().containsKey(name);
+    }
+
+    /** Writes the metadata JSON next to the animation's PNG and rescans. */
+    public static void writeMeta(String name, int frameCount, int frameWidth,
+                                 int frameHeight, long frameDurationMs) {
+        AnimationMeta meta = animations().get(name);
+        if (meta == null) {
+            return;
+        }
+        writeMetaFile(meta.png().resolveSibling(name + ".json"),
+                frameCount, frameWidth, frameHeight, frameDurationMs);
+        forceRescan();
+    }
+
+    /** Forces the next {@link #animations()} call to rescan the folder. */
+    public static void forceRescan() {
+        nextScanMs = 0;
+    }
+
+    /** Writes the metadata JSON with pretty printing; clamps the values. */
+    private static void writeMetaFile(Path json, int frameCount, int frameWidth,
+                                      int frameHeight, long frameDurationMs) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("frameCount", Math.max(1, Math.min(1024, frameCount)));
+        obj.addProperty("frameWidth", Math.max(1, Math.min(2048, frameWidth)));
+        obj.addProperty("frameHeight", Math.max(1, Math.min(2048, frameHeight)));
+        obj.addProperty("frameDurationMs", Math.max(10, Math.min(60000, frameDurationMs)));
+        try {
+            Files.writeString(json, new GsonBuilder().setPrettyPrinting().create().toJson(obj));
+            InventoryGif.LOGGER.info("Wrote animation meta {}", json);
+        } catch (IOException e) {
+            InventoryGif.LOGGER.warn("Could not write animation meta {}: {}", json, e.toString());
+        }
+    }
+
+    private static void scan() {
+        try {
+            Files.createDirectories(DIR);
+        } catch (IOException e) {
+            InventoryGif.LOGGER.warn("Could not create animations folder {}: {}", DIR, e.toString());
+            return;
+        }
+
+        if (!exampleExtracted) {
+            exampleExtracted = true;
+            extractExample();
+        }
+
+        Map<String, AnimationMeta> found = new LinkedHashMap<>();
+        try (Stream<Path> files = Files.list(DIR)) {
+            files.filter(p -> {
+                        String n = p.getFileName().toString().toLowerCase();
+                        return n.endsWith(".png") || n.endsWith(".gif") || n.endsWith(".avif");
+                    })
+                    .sorted()
+                    .forEach(p -> {
+                        String fileName = p.getFileName().toString();
+                        int dot = fileName.lastIndexOf('.');
+                        String name = dot >= 0 ? fileName.substring(0, dot) : fileName;
+                        AnimationMeta meta = readMeta(name, p);
+                        if (meta != null) {
+                            found.put(name, meta);
+                        }
+                    });
+        } catch (IOException e) {
+            InventoryGif.LOGGER.warn("Could not scan animations folder {}: {}", DIR, e.toString());
+            return;
+        }
+
+        animations.clear();
+        animations.putAll(found);
+    }
+
+    @Nullable
+    private static AnimationMeta readMeta(String name, Path file) {
+        String lower = file.getFileName().toString().toLowerCase();
+        Format format = lower.endsWith(".gif") ? Format.GIF
+                : lower.endsWith(".avif") ? Format.AVIF
+                : Format.PNG;
+
+        int frameCount;
+        int frameWidth;
+        int frameHeight;
+        long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
+
+        if (format == Format.GIF) {
+            int[] gifHdr = gifHeader(file);
+            if (gifHdr == null) {
+                return null;
+            }
+            frameCount = Math.max(1, countGifFrames(file));
+            frameWidth = gifHdr[0];
+            frameHeight = gifHdr[1];
+        } else if (format == Format.AVIF) {
+            int[] avifInfo = probeAvif(file);
+            if (avifInfo == null) {
+                return null;
+            }
+            frameCount = avifInfo[0];
+            frameWidth = avifInfo[1];
+            frameHeight = avifInfo[2];
+            frameDurationMs = avifInfo[3];
+        } else {
+            int[] dims = imageSize(file);
+            if (dims == null) {
+                return null;
+            }
+            int defaultFrameCount = Math.max(1, InventoryGifConfig.FRAME_COUNT.get());
+            frameCount = defaultFrameCount;
+            frameWidth = dims[0];
+            frameHeight = Math.max(1, (int) Math.ceil(dims[1] / (double) defaultFrameCount));
+        }
+
+        Path json = file.resolveSibling(name + ".json");
+        if (format == Format.PNG && !Files.isRegularFile(json)) {
+            writeMetaFile(json, frameCount, frameWidth, frameHeight, frameDurationMs);
+        }
+        if (Files.isRegularFile(json)) {
+            try (Reader reader = Files.newBufferedReader(json)) {
+                JsonObject obj = GSON.fromJson(reader, JsonObject.class);
+                if (obj != null) {
+                    if (obj.has("frameCount")) {
+                        frameCount = obj.get("frameCount").getAsInt();
+                    }
+                    if (obj.has("frameWidth")) {
+                        frameWidth = obj.get("frameWidth").getAsInt();
+                    }
+                    if (obj.has("frameHeight")) {
+                        frameHeight = obj.get("frameHeight").getAsInt();
+                    }
+                    if (obj.has("frameDurationMs")) {
+                        frameDurationMs = obj.get("frameDurationMs").getAsLong();
+                    }
+                }
+            } catch (Exception e) {
+                InventoryGif.LOGGER.warn("Bad animation meta {}: {}", json, e.toString());
+            }
+        }
+
+        frameCount = Math.max(1, Math.min(1024, frameCount));
+        frameWidth = Math.max(1, Math.min(2048, frameWidth));
+        frameHeight = Math.max(1, Math.min(2048, frameHeight));
+        frameDurationMs = Math.max(10, Math.min(60000, frameDurationMs));
+        return new AnimationMeta(name, file, frameCount, frameWidth, frameHeight, frameDurationMs, format);
+    }
+
+    /**
+     * Probes an AVIF's frame count / canvas size / nominal frame duration
+     * without fully decoding pixels — just opens the demuxer headers via
+     * FFmpeg. Cached per file (mtime-checked) since it's not free like the
+     * raw byte-header reads used for PNG/GIF.
+     */
+    @Nullable
+    private static int[] probeAvif(Path file) {
+        long mtime;
+        try {
+            mtime = Files.getLastModifiedTime(file).toMillis();
+        } catch (IOException e) {
+            return null;
+        }
+        ProbeCache cached = AVIF_PROBE_CACHE.get(file);
+        if (cached != null && cached.mtime() == mtime) {
+            return cached.info();
+        }
+        int[] info = probeAvifUncached(file);
+        if (info != null) {
+            AVIF_PROBE_CACHE.put(file, new ProbeCache(mtime, info));
+        }
+        return info;
+    }
+
+    @Nullable
+    private static int[] probeAvifUncached(Path file) {
+        try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(file.toString())) {
+            grabber.start();
+            int w = grabber.getImageWidth();
+            int h = grabber.getImageHeight();
+            int frames = grabber.getLengthInFrames();
+            double fr = grabber.getFrameRate();
+            grabber.stop();
+            if (w <= 0 || h <= 0) {
+                return null;
+            }
+            long durationMs = fr > 0 ? Math.round(1000.0 / fr) : 100L;
+            // Nominal values only — AnimationTextureManager records the real
+            // per-frame count/timing once it fully decodes the file.
+            return new int[]{Math.max(1, frames), w, h, (int) durationMs};
+        } catch (Exception e) {
+            InventoryGif.LOGGER.warn("Could not probe AVIF {}: {}", file, e.toString());
+            return null;
+        }
+    }
+
+    /** Reads GIF logical screen width and height from the header (no decode). */
+    @Nullable
+    private static int[] gifHeader(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] header = in.readNBytes(10);
+            if (header.length < 10) {
+                return null;
+            }
+            int width = (header[6] & 0xFF) | ((header[7] & 0xFF) << 8);
+            int height = (header[8] & 0xFF) | ((header[9] & 0xFF) << 8);
+            return width > 0 && height > 0 ? new int[]{width, height} : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static int countGifFrames(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            skip(in, 6);
+            byte[] ls = in.readNBytes(7);
+            if (ls.length < 7) {
+                return 1;
+            }
+            int flags = ls[4] & 0xFF;
+            if ((flags & 0x80) != 0) {
+                skip(in, 3L * (1 << ((flags & 0x07) + 1)));
+            }
+            int frames = 0;
+            while (true) {
+                int id = in.read();
+                if (id < 0 || id == 0x3B) {
+                    break;
+                }
+                if (id == 0x2C) {
+                    frames++;
+                    byte[] desc = in.readNBytes(9);
+                    if (desc.length < 9) {
+                        break;
+                    }
+                    int f = desc[8] & 0xFF;
+                    if ((f & 0x80) != 0) {
+                        skip(in, 3L * (1 << ((f & 0x07) + 1)));
+                    }
+                    if (in.read() < 0) {
+                        break;
+                    }
+                    skipSubBlocks(in);
+                } else if (id == 0x21) {
+                    if (in.read() < 0) {
+                        break;
+                    }
+                    skipSubBlocks(in);
+                } else {
+                    break;
+                }
+            }
+            return Math.max(1, frames);
+        } catch (IOException e) {
+            return 1;
+        }
+    }
+
+    private static void skipSubBlocks(InputStream in) throws IOException {
+        while (true) {
+            int size = in.read();
+            if (size <= 0) {
+                return;
+            }
+            skip(in, size);
+        }
+    }
+
+    private static void skip(InputStream in, long n) throws IOException {
+        long remaining = n;
+        while (remaining > 0) {
+            long skipped = in.skip(remaining);
+            if (skipped > 0) {
+                remaining -= skipped;
+            } else if (in.read() < 0) {
+                return;
+            } else {
+                remaining--;
+            }
+        }
+    }
+
+    @Nullable
+    private static int[] imageSize(Path png) {
+        try (InputStream in = Files.newInputStream(png)) {
+            byte[] header = in.readNBytes(24);
+            if (header.length < 24) {
+                return null;
+            }
+            int width = ((header[16] & 0xFF) << 24) | ((header[17] & 0xFF) << 16)
+                    | ((header[18] & 0xFF) << 8) | (header[19] & 0xFF);
+            int height = ((header[20] & 0xFF) << 24) | ((header[21] & 0xFF) << 16)
+                    | ((header[22] & 0xFF) << 8) | (header[23] & 0xFF);
+            return width > 0 && height > 0 ? new int[]{width, height} : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static void extractExample() {
+        extract(EXAMPLE_PNG_CLASSPATH, DIR.resolve(DEFAULT_NAME + ".png"));
+        extract(EXAMPLE_JSON_CLASSPATH, DIR.resolve(DEFAULT_NAME + ".json"));
+    }
+
+    private static void extract(String classpath, Path target) {
+        if (Files.exists(target)) {
+            return;
+        }
+        try (InputStream in = AnimationLibrary.class.getResourceAsStream(classpath)) {
+            if (in == null) {
+                return;
+            }
+            Files.copy(in, target);
+            InventoryGif.LOGGER.info("Extracted example animation to {}", target);
+        } catch (IOException | RuntimeException e) {
+            InventoryGif.LOGGER.warn("Could not extract example animation to {}: {}", target, e.toString());
+        }
+    }
+}
+```
+
+## 3. `AnimationTextureManager.java` — асинхронный AVIF-декод + фикс GIF-дырок из прошлого сообщения
+
+```java
+package ru.example.inventorygif.client;
+
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.resources.ResourceLocation;
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.Frame;
+import org.bytedeco.javacv.Java2DFrameConverter;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.NodeList;
+import ru.example.inventorygif.InventoryGif;
+
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.IIOMetadataNode;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * Registers sprite sheets from {@link AnimationLibrary} as dynamic textures.
+ *
+ * PNG: single sprite sheet as-is. GIF: decoded and re-composited frame by
+ * frame (frames may only carry the changed region — see {@link #loadGif})
+ * into a vertically-stacked sheet. AVIF: decoded via bytedeco/FFmpeg
+ * (AV1 has no pure-Java decoder) off the render thread — see
+ * {@link #loadAvif} — since it's comparatively expensive; the previous/
+ * fallback texture stays visible until decoding finishes, then the new
+ * texture is registered back on the main thread (required for GL calls).
+ */
+public final class AnimationTextureManager {
+
+    private static final ResourceLocation FALLBACK_TEXTURE =
+            ResourceLocation.fromNamespaceAndPath(InventoryGif.MODID, "textures/gui/animation.png");
+
+    private static final long CHECK_INTERVAL_MS = 500L;
+
+    public static final class Loaded {
+        ResourceLocation texture = FALLBACK_TEXTURE;
+        int width = 128;
+        int height = 1024;
+        long mtime = Long.MIN_VALUE;
+        AnimationLibrary.AnimationMeta meta;
+        /** Per-frame delays in ms (null for a plain PNG sheet). */
+        long[] frameDelays;
+        /** Single decoded frame size (for GIF/AVIF; each frame is one vertical slice). */
+        int frameWidth;
+        int frameHeight;
+    }
+
+    private static final Map<String, Loaded> POOL = new HashMap<>();
+    /** Animation names with an AVIF decode currently in flight (avoids resubmitting every check). */
+    private static final Set<String> DECODING = ConcurrentHashMap.newKeySet();
+    private static final ExecutorService DECODE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "InventoryGif-AVIF-Decoder");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private static long nextCheckMs;
+
+    private AnimationTextureManager() {
+    }
+
+    public static Loaded get(AnimationLibrary.AnimationMeta meta) {
+        Loaded loaded = POOL.computeIfAbsent(meta.name(), name -> load(meta));
+
+        long now = System.currentTimeMillis();
+        if (now >= nextCheckMs) {
+            nextCheckMs = now + CHECK_INTERVAL_MS;
+            long mtime = mtime(meta);
+            if (mtime != loaded.mtime) {
+                reload(loaded);
+            }
+        }
+        return loaded;
+    }
+
+    public static void invalidate() {
+        for (Loaded loaded : POOL.values()) {
+            Minecraft.getInstance().getTextureManager().release(loaded.texture);
+        }
+        POOL.clear();
+        DECODING.clear();
+    }
+
+    private static Loaded load(AnimationLibrary.AnimationMeta meta) {
+        Loaded loaded = new Loaded();
+        loaded.meta = meta;
+        loaded.texture = ResourceLocation.fromNamespaceAndPath(
+                InventoryGif.MODID, "anim_" + POOL.size());
+        reload(loaded);
+        return loaded;
+    }
+
+    private static void reload(Loaded loaded) {
+        if (!Files.isRegularFile(loaded.meta.png())) {
+            loaded.mtime = mtime(loaded.meta);
+            loaded.texture = FALLBACK_TEXTURE;
+            loaded.frameDelays = null;
+            loaded.width = loaded.meta.frameWidth();
+            loaded.height = loaded.meta.frameHeight() * loaded.meta.frameCount();
+            return;
+        }
+
+        switch (loaded.meta.format()) {
+            case GIF -> {
+                loaded.mtime = mtime(loaded.meta);
+                loadGif(loaded);
+            }
+            case AVIF -> loadAvif(loaded); // async — sets mtime itself before dispatching
+            default -> {
+                loaded.mtime = mtime(loaded.meta);
+                loadPng(loaded);
+            }
+        }
+    }
+
+    private static void loadPng(Loaded loaded) {
+        try (InputStream in = Files.newInputStream(loaded.meta.png())) {
+            NativeImage image = NativeImage.read(in);
+            TextureManager tm = Minecraft.getInstance().getTextureManager();
+            tm.release(loaded.texture);
+            tm.register(loaded.texture, new DynamicTexture(image));
+            loaded.width = image.getWidth();
+            loaded.height = image.getHeight();
+            loaded.frameDelays = null;
+        } catch (IOException | RuntimeException e) {
+            loaded.texture = FALLBACK_TEXTURE;
+            loaded.frameDelays = null;
+            InventoryGif.LOGGER.warn("Failed to load animation texture from {}: {}. Using built-in texture.",
+                    loaded.meta.png(), e.toString());
+        }
+    }
+
+    // ---------------------------------------------------------------- GIF --
+
+    private static void loadGif(Loaded loaded) {
+        try (InputStream in = Files.newInputStream(loaded.meta.png())) {
+            ImageInputStream iis = ImageIO.createImageInputStream(in);
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                iis.close();
+                throw new IOException("No GIF reader available");
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(iis, false, false);
+                int n = Math.max(1, reader.getNumImages(true));
+
+                int[] canvasSize = readGifCanvasSize(reader);
+                int fw = canvasSize[0];
+                int fh = canvasSize[1];
+
+                NativeImage sheet = new NativeImage(fw, fh * n, true);
+                long[] delays = new long[n];
+
+                // ImageIO hands back each GIF frame as its own (often partial)
+                // rectangle without compositing it onto previous frames, so we
+                // maintain the canvas ourselves, frame by frame.
+                BufferedImage canvas = new BufferedImage(fw, fh, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = canvas.createGraphics();
+                BufferedImage previousSnapshot = null;
+                int prevDisposal = 0;
+                int prevLeft = 0, prevTop = 0, prevW = 0, prevH = 0;
+
+                for (int i = 0; i < n; i++) {
+                    if (prevDisposal == 2) {
+                        g.setComposite(AlphaComposite.Clear);
+                        g.fillRect(prevLeft, prevTop, prevW, prevH);
+                        g.setComposite(AlphaComposite.SrcOver);
+                    } else if (prevDisposal == 3 && previousSnapshot != null) {
+                        g.setComposite(AlphaComposite.Src);
+                        g.drawImage(previousSnapshot, 0, 0, null);
+                        g.setComposite(AlphaComposite.SrcOver);
+                    }
+
+                    GifFrameInfo info = readGifFrameInfo(reader, i);
+                    if (info.disposal() == 3) {
+                        previousSnapshot = copy(canvas);
+                    }
+
+                    BufferedImage bi = reader.read(i);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.drawImage(bi, info.left(), info.top(), null);
+
+                    fillSheet(sheet, canvas, i, fw, fh);
+                    delays[i] = Math.max(10L, info.delayMs());
+
+                    prevDisposal = info.disposal();
+                    prevLeft = info.left();
+                    prevTop = info.top();
+                    prevW = bi.getWidth();
+                    prevH = bi.getHeight();
+                }
+                g.dispose();
+
+                TextureManager tm = Minecraft.getInstance().getTextureManager();
+                tm.release(loaded.texture);
+                tm.register(loaded.texture, new DynamicTexture(sheet));
+                loaded.width = fw;
+                loaded.height = fh * n;
+                loaded.frameDelays = delays;
+                loaded.frameWidth = fw;
+                loaded.frameHeight = fh;
+                InventoryGif.LOGGER.info("Loaded GIF animation {} ({} frames {}x{})",
+                        loaded.meta.png(), n, fw, fh);
+            } finally {
+                try {
+                    reader.dispose();
+                    iis.close();
+                } catch (IOException ignored) {
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            loaded.texture = FALLBACK_TEXTURE;
+            loaded.frameDelays = null;
+            InventoryGif.LOGGER.warn("Failed to load GIF {}: {}", loaded.meta.png(), e.toString());
+        }
+    }
+
+    private record GifFrameInfo(int left, int top, int disposal, long delayMs) {
+    }
+
+    private static GifFrameInfo readGifFrameInfo(ImageReader reader, int index) {
+        int left = 0, top = 0, disposal = 0;
+        long delay = 100L;
+        try {
+            IIOMetadata metadata = reader.getImageMetadata(index);
+            IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(metadata.getNativeMetadataFormatName());
+
+            NodeList imgDescs = root.getElementsByTagName("ImageDescriptor");
+            if (imgDescs.getLength() > 0) {
+                NamedNodeMap attrs = imgDescs.item(0).getAttributes();
+                left = parseIntAttr(attrs, "imageLeftPosition", 0);
+                top = parseIntAttr(attrs, "imageTopPosition", 0);
+            }
+
+            NodeList gceList = root.getElementsByTagName("GraphicControlExtension");
+            if (gceList.getLength() > 0) {
+                NamedNodeMap attrs = gceList.item(0).getAttributes();
+                org.w3c.dom.Node delayAttr = attrs.getNamedItem("delayTime");
+                if (delayAttr != null) {
+                    delay = Integer.parseInt(delayAttr.getNodeValue()) * 10L;
+                }
+                org.w3c.dom.Node disposalAttr = attrs.getNamedItem("disposalMethod");
+                if (disposalAttr != null) {
+                    disposal = switch (disposalAttr.getNodeValue()) {
+                        case "restoreToBackgroundColor" -> 2;
+                        case "restoreToPrevious" -> 3;
+                        case "doNotDispose" -> 1;
+                        default -> 0;
+                    };
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return new GifFrameInfo(left, top, disposal, delay);
+    }
+
+    private static int parseIntAttr(NamedNodeMap attrs, String name, int def) {
+        org.w3c.dom.Node n = attrs.getNamedItem(name);
+        if (n == null) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(n.getNodeValue());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    private static int[] readGifCanvasSize(ImageReader reader) {
+        try {
+            IIOMetadata streamMeta = reader.getStreamMetadata();
+            if (streamMeta != null) {
+                IIOMetadataNode root = (IIOMetadataNode) streamMeta.getAsTree(streamMeta.getNativeMetadataFormatName());
+                NodeList lsd = root.getElementsByTagName("LogicalScreenDescriptor");
+                if (lsd.getLength() > 0) {
+                    NamedNodeMap attrs = lsd.item(0).getAttributes();
+                    int w = parseIntAttr(attrs, "logicalScreenWidth", -1);
+                    int h = parseIntAttr(attrs, "logicalScreenHeight", -1);
+                    if (w > 0 && h > 0) {
+                        return new int[]{w, h};
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            return new int[]{reader.getWidth(0), reader.getHeight(0)};
+        } catch (IOException e) {
+            return new int[]{1, 1};
+        }
+    }
+
+    private static BufferedImage copy(BufferedImage src) {
+        BufferedImage c = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = c.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        return c;
+    }
+
+    /** Writes a full, already-composited frame into the sheet at row {@code frameIndex}. */
+    private static void fillSheet(NativeImage sheet, BufferedImage frame, int frameIndex, int fw, int fh) {
+        int oy = frameIndex * fh;
+        for (int y = 0; y < fh; y++) {
+            for (int x = 0; x < fw; x++) {
+                int argb = frame.getRGB(x, y);
+                int a = (argb >>> 24) & 0xFF;
+                int r = (argb >>> 16) & 0xFF;
+                int gg = (argb >>> 8) & 0xFF;
+                int b = argb & 0xFF;
+                // NativeImage.setPixelRGBA packs ABGR (alpha high byte), which
+                // uploads little-endian as RGBA bytes for GL_RGBA.
+                sheet.setPixelRGBA(x, oy + y, (a << 24) | (b << 16) | (gg << 8) | r);
+            }
+        }
+    }
+
+    // --------------------------------------------------------------- AVIF --
+
+    /**
+     * Kicks off an async AV1 decode via bytedeco/FFmpeg. Runs off the render
+     * thread since decoding a couple hundred AV1 frames is not free; the
+     * fallback/previous texture stays visible until it's done, then the new
+     * texture is registered back on the main thread (GL calls aren't safe
+     * off-thread).
+     */
+    private static void loadAvif(Loaded loaded) {
+        String name = loaded.meta.name();
+        if (!DECODING.add(name)) {
+            return; // a decode for this animation is already running
+        }
+        loaded.mtime = mtime(loaded.meta); // don't resubmit on every throttled check while decoding
+
+        DECODE_EXECUTOR.execute(() -> {
+            try {
+                DecodedFrames decoded = decodeAvif(loaded.meta.png());
+                Minecraft.getInstance().execute(() -> applyDecodedAvif(loaded, decoded));
+            } catch (Exception e) {
+                InventoryGif.LOGGER.warn("Failed to load AVIF {}: {}", loaded.meta.png(), e.toString());
+                Minecraft.getInstance().execute(() -> {
+                    loaded.texture = FALLBACK_TEXTURE;
+                    loaded.frameDelays = null;
+                });
+            } finally {
+                DECODING.remove(name);
+            }
+        });
+    }
+
+    private record DecodedFrames(NativeImage sheet, long[] delays, int frameWidth, int frameHeight) {
+    }
+
+    private static DecodedFrames decodeAvif(java.nio.file.Path file) throws Exception {
+        try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(file.toString())) {
+            grabber.start();
+            int fw = grabber.getImageWidth();
+            int fh = grabber.getImageHeight();
+            if (fw <= 0 || fh <= 0) {
+                throw new IOException("AVIF has invalid dimensions");
+            }
+
+            Java2DFrameConverter converter = new Java2DFrameConverter();
+            List<BufferedImage> frames = new ArrayList<>();
+            List<Long> timestampsUs = new ArrayList<>();
+
+            Frame frame;
+            while ((frame = grabber.grabImage()) != null) {
+                BufferedImage bi = converter.convert(frame); // buffer reused by the converter — copy it
+                BufferedImage copy = new BufferedImage(fw, fh, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = copy.createGraphics();
+                g.drawImage(bi, 0, 0, null);
+                g.dispose();
+                frames.add(copy);
+                timestampsUs.add(grabber.getTimestamp());
+            }
+            grabber.stop();
+
+            int n = frames.size();
+            if (n == 0) {
+                throw new IOException("AVIF has no frames");
+            }
+
+            NativeImage sheet = new NativeImage(fw, fh * n, true);
+            long[] delays = new long[n];
+            for (int i = 0; i < n; i++) {
+                fillSheet(sheet, frames.get(i), i, fw, fh);
+                long start = timestampsUs.get(i);
+                long end = i + 1 < n ? timestampsUs.get(i + 1)
+                        : start + (n > 1 ? start - timestampsUs.get(i - 1) : 100_000L);
+                delays[i] = Math.max(10L, (end - start) / 1000L);
+            }
+            return new DecodedFrames(sheet, delays, fw, fh);
+        }
+    }
+
+    private static void applyDecodedAvif(Loaded loaded, DecodedFrames decoded) {
+        TextureManager tm = Minecraft.getInstance().getTextureManager();
+        tm.release(loaded.texture);
+        tm.register(loaded.texture, new DynamicTexture(decoded.sheet()));
+        loaded.width = decoded.frameWidth();
+        loaded.height = decoded.frameHeight() * decoded.delays().length;
+        loaded.frameDelays = decoded.delays();
+        loaded.frameWidth = decoded.frameWidth();
+        loaded.frameHeight = decoded.frameHeight();
+        InventoryGif.LOGGER.info("Loaded AVIF animation {} ({} frames {}x{})",
+                loaded.meta.png(), decoded.delays().length, decoded.frameWidth(), decoded.frameHeight());
+    }
+
+    // ------------------------------------------------------------ common --
+
+    private static long mtime(AnimationLibrary.AnimationMeta meta) {
+        try {
+            return Files.isRegularFile(meta.png()) ? Files.getLastModifiedTime(meta.png()).toMillis() : -1L;
+        } catch (IOException e) {
+            return -1L;
+        }
+    }
+
+    public static ResourceLocation textureOf(Loaded loaded) {
+        return loaded.texture;
+    }
+
+    public static int widthOf(Loaded loaded) {
+        return loaded.width;
+    }
+
+    public static int heightOf(Loaded loaded) {
+        return loaded.height;
+    }
+
+    /** True for a decoded GIF or AVIF (both carry explicit per-frame delays). */
+    public static boolean hasFrameDelays(Loaded loaded) {
+        return loaded.frameDelays != null;
+    }
+
+    public static int gifFrameWidth(Loaded loaded) {
+        return loaded.frameWidth;
+    }
+
+    public static int gifFrameHeight(Loaded loaded) {
+        return loaded.frameHeight;
+    }
+
+    public static int currentGifFrame(Loaded loaded, long timeMs) {
+        long[] delays = loaded.frameDelays;
+        long total = 0;
+        for (long d : delays) {
+            total += d;
+        }
+        if (total <= 0) {
+            return 0;
+        }
+        long t = Math.floorMod(timeMs, total);
+        long acc = 0;
+        for (int i = 0; i < delays.length; i++) {
+            acc += delays[i];
+            if (t < acc) {
+                return i;
+            }
+        }
+        return delays.length - 1;
+    }
+}
+```
+
+## 4. Одна правка в `InventoryGifRenderer.java`
+
+Метод переименован (`isGif` → `hasFrameDelays`, теперь это не только про GIF):
+
+```java
+// было:
+if (AnimationTextureManager.isGif(image.loaded())) {
+// стало:
+if (AnimationTextureManager.hasFrameDelays(image.loaded())) {
+```
+
+Остальная часть `drawImage` не меняется — она уже общая для «любого источника с покадровыми задержками».
+
+## Проверка на вашем `vibe.avif`
+
+Файл — 96×96, 250 кадров, RGBA с альфой. При падении в `inventorygif/animations/vibe.avif`:
+- `probeAvif` за один быстрый `start()` отдаст нативные размер/кол-во кадров для списка в конфиг-экране;
+- реальный декод (250 кадров AV1 → лист 96×24000, ~9 МБ NativeImage) уйдёт в фон и не подвесит игру; пока идёт — показывается фолбэк-текстура;
+- альфа-канал (второй `av01`-трек) FFmpeg должен смёржить в декодированный кадр автоматически (AVIF-демуксер в ffmpeg делает это сам), так что копирование через `Java2DFrameConverter` → `TYPE_INT_ARGB` должно сохранить прозрачность без доп. телодвижений — но именно это стоит перепроверить визуально в игре, поведение alpha-track иногда зависит от версии сборки ffmpeg.
+
+Пришлёте `build.gradle` — подгоню `jarJar`/классификаторы точно под вашу версию NeoForge Gradle плагина.

@@ -20,6 +20,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.NodeList;
+
 /**
  * Registers sprite sheets from {@link AnimationLibrary} as dynamic textures.
  *

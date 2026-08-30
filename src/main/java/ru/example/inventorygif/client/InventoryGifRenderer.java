@@ -159,7 +159,7 @@ public final class InventoryGifRenderer {
             return;
         }
 
-        if (AnimationTextureManager.isGif(image.loaded())) {
+        if (image.loaded().frameDelays != null && image.loaded().frameDelays.length > 1) {
             // GIF: the frame index follows the per-frame delays; the frame is a
             // vertical slice of the decoded sheet (v = index * frameHeight).
             int frameIndex = AnimationTextureManager.currentGifFrame(image.loaded(), Util.getMillis());
