@@ -32,11 +32,20 @@ public final class AnimationDragHandler {
     private static AbstractContainerScreen<?> dragScreen;
     /** Index of the dragged image within the node's image list. */
     private static int dragIndex = -1;
-    /** Live (unclamped) position of the dragged image. */
+    /** Live (unclamped) position of the dragged image, for rendering/clamping. */
     private static int currentX;
     private static int currentY;
-    private static double startMouseX;
-    private static double startMouseY;
+    /**
+     * Image position and mouse position at the moment the drag started — kept
+     * fixed for the whole drag. Every subsequent position is computed directly
+     * from this anchor (imageStart + (mouseNow - mouseStart)) instead of by
+     * accumulating per-event deltas, so there is nothing for rounding error to
+     * build up in even over a long, slow drag.
+     */
+    private static int dragStartImageX;
+    private static int dragStartImageY;
+    private static double dragStartMouseX;
+    private static double dragStartMouseY;
 
     private AnimationDragHandler() {
     }
@@ -98,10 +107,12 @@ public final class AnimationDragHandler {
             InventoryGifRenderer.PlacedImage hit = images.get(hitIndex);
             dragScreen = screen;
             dragIndex = hitIndex;
+            dragStartImageX = hit.x();
+            dragStartImageY = hit.y();
+            dragStartMouseX = mouseX;
+            dragStartMouseY = mouseY;
             currentX = hit.x();
             currentY = hit.y();
-            startMouseX = mouseX;
-            startMouseY = mouseY;
             event.setCanceled(true);
         } else if (event.getButton() == 1) {
             // Right click: reset the whole node to inherit from its parent.
@@ -115,10 +126,10 @@ public final class AnimationDragHandler {
         if (dragScreen == null || event.getScreen() != dragScreen) {
             return;
         }
-        currentX += (int) Math.round(event.getMouseX() - startMouseX);
-        currentY += (int) Math.round(event.getMouseY() - startMouseY);
-        startMouseX = event.getMouseX();
-        startMouseY = event.getMouseY();
+        // Computed directly from the fixed press-time anchor every time, not by
+        // accumulating rounded per-frame deltas — see field comments above.
+        currentX = dragStartImageX + (int) Math.round(event.getMouseX() - dragStartMouseX);
+        currentY = dragStartImageY + (int) Math.round(event.getMouseY() - dragStartMouseY);
         event.setCanceled(true);
     }
 
