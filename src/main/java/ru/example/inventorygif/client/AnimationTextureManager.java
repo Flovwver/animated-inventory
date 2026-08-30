@@ -131,10 +131,8 @@ public final class AnimationTextureManager {
         }
     }
 
-    /**
-     * Decodes a GIF and stacks its frames vertically into one sprite sheet
-     * (like a PNG), recording each frame's own delay for accurate timing.
-     */
+    // ---------------------------------------------------------------- GIF --
+
     private static void loadGif(Loaded loaded) {
         try (InputStream in = Files.newInputStream(loaded.meta.png())) {
             ImageInputStream iis = ImageIO.createImageInputStream(in);
@@ -145,17 +143,56 @@ public final class AnimationTextureManager {
             }
             ImageReader reader = readers.next();
             try {
-                reader.setInput(iis, false, true);
+                reader.setInput(iis, false, false);
                 int n = Math.max(1, reader.getNumImages(true));
-                int fw = reader.getWidth(0);
-                int fh = reader.getHeight(0);
+
+                int[] canvasSize = readCanvasSize(reader);
+                int fw = canvasSize[0];
+                int fh = canvasSize[1];
+
                 NativeImage sheet = new NativeImage(fw, fh * n, true);
                 long[] delays = new long[n];
+
+                // ImageIO отдаёт каждый GIF-кадр как отдельный (часто урезанный)
+                // прямоугольник, без композиции с предыдущими кадрами — поэтому
+                // собираем полный канвас сами, кадр за кадром.
+                BufferedImage canvas = new BufferedImage(fw, fh, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = canvas.createGraphics();
+                BufferedImage previousSnapshot = null;
+                int prevDisposal = 0;
+                int prevLeft = 0, prevTop = 0, prevW = 0, prevH = 0;
+
                 for (int i = 0; i < n; i++) {
+                    if (prevDisposal == 2) {
+                        g.setComposite(AlphaComposite.Clear);
+                        g.fillRect(prevLeft, prevTop, prevW, prevH);
+                        g.setComposite(AlphaComposite.SrcOver);
+                    } else if (prevDisposal == 3 && previousSnapshot != null) {
+                        g.setComposite(AlphaComposite.Src);
+                        g.drawImage(previousSnapshot, 0, 0, null);
+                        g.setComposite(AlphaComposite.SrcOver);
+                    }
+
+                    GifFrameInfo info = readGifFrameInfo(reader, i);
+                    if (info.disposal() == 3) {
+                        previousSnapshot = copy(canvas);
+                    }
+
                     BufferedImage bi = reader.read(i);
-                    fillSheet(sheet, bi, i, fw, fh);
-                    delays[i] = Math.max(10L, readGifDelay(reader, i));
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.drawImage(bi, info.left(), info.top(), null);
+
+                    fillSheet(sheet, canvas, i, fw, fh);
+                    delays[i] = Math.max(10L, info.delayMs());
+
+                    prevDisposal = info.disposal();
+                    prevLeft = info.left();
+                    prevTop = info.top();
+                    prevW = bi.getWidth();
+                    prevH = bi.getHeight();
                 }
+                g.dispose();
+
                 TextureManager tm = Minecraft.getInstance().getTextureManager();
                 tm.release(loaded.texture);
                 tm.register(loaded.texture, new DynamicTexture(sheet));
@@ -180,51 +217,107 @@ public final class AnimationTextureManager {
         }
     }
 
-    /** Writes a BufferedImage frame into the sheet at row {@code frameIndex}. */
-    private static void fillSheet(NativeImage sheet, BufferedImage bi, int frameIndex, int fw, int fh) {
-        int bw = bi.getWidth();
-        int bh = bi.getHeight();
-        int ox = 0;
-        int oy = frameIndex * fh;
-        for (int y = 0; y < bh && y < fh; y++) {
-            for (int x = 0; x < bw && x < fw; x++) {
-                int argb = bi.getRGB(x, y);
-                int a = (argb >>> 24) & 0xFF;
-                int r = (argb >>> 16) & 0xFF;
-                int g = (argb >>> 8) & 0xFF;
-                int b = argb & 0xFF;
-                // NativeImage.setPixelRGBA packs as ABGR (alpha high byte), which
-                // on little-endian uploads as RGBA bytes for GL_RGBA. Using the
-                // wrong order would swap red/blue and misplace alpha.
-                sheet.setPixelRGBA(ox + x, oy + y, (a << 24) | (b << 16) | (g << 8) | r);
-            }
-        }
+    private record GifFrameInfo(int left, int top, int disposal, long delayMs) {
     }
 
-    /** Reads a GIF's per-frame delay (in ms) from its graphic control extension. */
-    private static long readGifDelay(ImageReader reader, int index) {
+    private static GifFrameInfo readGifFrameInfo(ImageReader reader, int index) {
+        int left = 0, top = 0, disposal = 0;
+        long delay = 100L;
         try {
             IIOMetadata metadata = reader.getImageMetadata(index);
             IIOMetadataNode root = (IIOMetadataNode) metadata.getAsTree(metadata.getNativeMetadataFormatName());
-            var nodes = root.getElementsByTagName("GraphicControlExtension");
-            if (nodes.getLength() > 0) {
-                org.w3c.dom.Node gce = nodes.item(0);
-                org.w3c.dom.Node attr = gce.getAttributes().getNamedItem("delayTime");
-                if (attr != null) {
-                    return Integer.parseInt(attr.getNodeValue()) * 10L;
+
+            NodeList imgDescs = root.getElementsByTagName("ImageDescriptor");
+            if (imgDescs.getLength() > 0) {
+                NamedNodeMap attrs = imgDescs.item(0).getAttributes();
+                left = parseIntAttr(attrs, "imageLeftPosition", 0);
+                top = parseIntAttr(attrs, "imageTopPosition", 0);
+            }
+
+            NodeList gceList = root.getElementsByTagName("GraphicControlExtension");
+            if (gceList.getLength() > 0) {
+                NamedNodeMap attrs = gceList.item(0).getAttributes();
+                org.w3c.dom.Node delayAttr = attrs.getNamedItem("delayTime");
+                if (delayAttr != null) {
+                    delay = Integer.parseInt(delayAttr.getNodeValue()) * 10L;
                 }
-                var delays = gce.getChildNodes();
-                for (int i = 0; i < delays.getLength(); i++) {
-                    org.w3c.dom.Node child = delays.item(i);
-                    if (child.getNodeName().equals("delayTime") && child.getFirstChild() != null) {
-                        return Integer.parseInt(child.getFirstChild().getNodeValue()) * 10L;
+                org.w3c.dom.Node disposalAttr = attrs.getNamedItem("disposalMethod");
+                if (disposalAttr != null) {
+                    disposal = switch (disposalAttr.getNodeValue()) {
+                        case "restoreToBackgroundColor" -> 2;
+                        case "restoreToPrevious" -> 3;
+                        case "doNotDispose" -> 1;
+                        default -> 0;
+                    };
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return new GifFrameInfo(left, top, disposal, delay);
+    }
+
+    private static int parseIntAttr(NamedNodeMap attrs, String name, int def) {
+        org.w3c.dom.Node n = attrs.getNamedItem(name);
+        if (n == null) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(n.getNodeValue());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    private static int[] readCanvasSize(ImageReader reader) {
+        try {
+            IIOMetadata streamMeta = reader.getStreamMetadata();
+            if (streamMeta != null) {
+                IIOMetadataNode root = (IIOMetadataNode) streamMeta.getAsTree(streamMeta.getNativeMetadataFormatName());
+                NodeList lsd = root.getElementsByTagName("LogicalScreenDescriptor");
+                if (lsd.getLength() > 0) {
+                    NamedNodeMap attrs = lsd.item(0).getAttributes();
+                    int w = parseIntAttr(attrs, "logicalScreenWidth", -1);
+                    int h = parseIntAttr(attrs, "logicalScreenHeight", -1);
+                    if (w > 0 && h > 0) {
+                        return new int[]{w, h};
                     }
                 }
             }
         } catch (Exception ignored) {
         }
-        return 100L;
+        try {
+            return new int[]{reader.getWidth(0), reader.getHeight(0)};
+        } catch (IOException e) {
+            return new int[]{1, 1};
+        }
     }
+
+    private static BufferedImage copy(BufferedImage src) {
+        BufferedImage c = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = c.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        return c;
+    }
+
+    /** Writes a full, already-composited frame into the sheet at row {@code frameIndex}. */
+    private static void fillSheet(NativeImage sheet, BufferedImage frame, int frameIndex, int fw, int fh) {
+        int oy = frameIndex * fh;
+        for (int y = 0; y < fh; y++) {
+            for (int x = 0; x < fw; x++) {
+                int argb = frame.getRGB(x, y);
+                int a = (argb >>> 24) & 0xFF;
+                int r = (argb >>> 16) & 0xFF;
+                int gg = (argb >>> 8) & 0xFF;
+                int b = argb & 0xFF;
+                // NativeImage.setPixelRGBA packs ABGR (alpha high byte), which
+                // uploads little-endian as RGBA bytes for GL_RGBA.
+                sheet.setPixelRGBA(x, oy + y, (a << 24) | (b << 16) | (gg << 8) | r);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ common --
 
     private static long mtime(AnimationLibrary.AnimationMeta meta) {
         try {
@@ -234,27 +327,23 @@ public final class AnimationTextureManager {
         }
     }
 
-    /** Texture to draw with (external file or built-in fallback). */
     public static ResourceLocation textureOf(Loaded loaded) {
         return loaded.texture;
     }
 
-    /** Pixel width of the loaded sprite sheet. */
     public static int widthOf(Loaded loaded) {
         return loaded.width;
     }
 
-    /** Pixel height of the loaded sprite sheet. */
     public static int heightOf(Loaded loaded) {
         return loaded.height;
     }
 
-    /** True if this animation is a decoded GIF (per-frame delays present). */
-    public static boolean isGif(Loaded loaded) {
+    /** True for a decoded GIF or AVIF (both carry explicit per-frame delays). */
+    public static boolean hasFrameDelays(Loaded loaded) {
         return loaded.frameDelays != null;
     }
 
-    /** GIF frame size (each vertical slice). */
     public static int gifFrameWidth(Loaded loaded) {
         return loaded.frameWidth;
     }
@@ -263,7 +352,6 @@ public final class AnimationTextureManager {
         return loaded.frameHeight;
     }
 
-    /** Currently visible GIF frame index for the given wall-clock time. */
     public static int currentGifFrame(Loaded loaded, long timeMs) {
         long[] delays = loaded.frameDelays;
         long total = 0;
