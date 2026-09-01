@@ -13,6 +13,7 @@ import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -42,6 +43,10 @@ public final class AnimationLibrary {
                                 int frameHeight, long frameDurationMs, boolean gif) {
     }
 
+    /** Cached GIF metadata: modification time and frame info. */
+    private record GifMetaCache(long mtime, int[] info) {
+    }
+
     /** Name of the built-in example animation (extracted on first run). */
     public static final String DEFAULT_NAME = "animation";
 
@@ -55,6 +60,7 @@ public final class AnimationLibrary {
     private static final long RESCAN_INTERVAL_MS = 2000L;
 
     private static final Map<String, AnimationMeta> animations = new LinkedHashMap<>();
+    private static final Map<java.nio.file.Path, GifMetaCache> GIF_META_CACHE = new HashMap<>();
     private static long nextScanMs;
     private static boolean exampleExtracted;
 
@@ -97,6 +103,7 @@ public final class AnimationLibrary {
     /** Forces the next {@link #animations()} call to rescan the folder. */
     public static void forceRescan() {
         nextScanMs = 0;
+        GIF_META_CACHE.clear();
     }
 
     /** Writes the metadata JSON with pretty printing; clamps the values. */
@@ -163,11 +170,27 @@ public final class AnimationLibrary {
         long frameDurationMs = InventoryGifConfig.FRAME_DURATION_MS.get();
 
         if (isGif) {
-            int[] gifHdr = gifHeader(file);
-            if (gifHdr == null) {
+            long mtime;
+            try {
+                mtime = Files.getLastModifiedTime(file).toMillis();
+            } catch (IOException e) {
                 return null;
             }
-            frameCount = Math.max(1, countGifFrames(file));
+            GifMetaCache cached = GIF_META_CACHE.get(file);
+            int[] gifHdr;
+            int frames;
+            if (cached != null && cached.mtime() == mtime) {
+                gifHdr = new int[]{cached.info()[1], cached.info()[2]};
+                frames = cached.info()[0];
+            } else {
+                gifHdr = gifHeader(file);
+                if (gifHdr == null) {
+                    return null;
+                }
+                frames = Math.max(1, countGifFrames(file));
+                GIF_META_CACHE.put(file, new GifMetaCache(mtime, new int[]{frames, gifHdr[0], gifHdr[1]}));
+            }
+            frameCount = frames;
             frameWidth = gifHdr[0];
             frameHeight = gifHdr[1];
         } else {

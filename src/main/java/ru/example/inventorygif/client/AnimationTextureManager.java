@@ -19,6 +19,10 @@ import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
@@ -42,6 +46,16 @@ public final class AnimationTextureManager {
 
     /** How often texture files are re-checked for changes, in milliseconds. */
     private static final long CHECK_INTERVAL_MS = 500L;
+
+    /** Executor for asynchronous GIF decoding. */
+    private static final ExecutorService GIF_DECODE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "InventoryGif-GIF-Decoder");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** GIF names currently being decoded asynchronously. */
+    private static final Set<String> GIF_DECODING = ConcurrentHashMap.newKeySet();
 
     /** One loaded (or failed-over) sprite sheet. */
     public static final class Loaded {
@@ -89,6 +103,7 @@ public final class AnimationTextureManager {
             Minecraft.getInstance().getTextureManager().release(loaded.texture);
         }
         POOL.clear();
+        GIF_DECODING.clear();
     }
 
     private static Loaded load(AnimationLibrary.AnimationMeta meta) {
@@ -105,7 +120,7 @@ public final class AnimationTextureManager {
 
         if (Files.isRegularFile(loaded.meta.png())) {
             if (loaded.meta.gif()) {
-                loadGif(loaded);
+                loadGifAsync(loaded);
             } else {
                 loadPng(loaded);
             }
@@ -138,8 +153,40 @@ public final class AnimationTextureManager {
 
     // ---------------------------------------------------------------- GIF --
 
-    private static void loadGif(Loaded loaded) {
-        try (InputStream in = Files.newInputStream(loaded.meta.png())) {
+    /**
+     * Decodes a GIF asynchronously so it doesn't block the render thread.
+     * The UI doesn't refresh while decoding, but frames are drawn as soon as ready.
+     */
+    private static void loadGifAsync(Loaded loaded) {
+        String name = loaded.meta.name();
+        if (!GIF_DECODING.add(name)) {
+            return; // already decoding
+        }
+        loaded.mtime = mtime(loaded.meta);
+
+        GIF_DECODE_EXECUTOR.execute(() -> {
+            try {
+                DecodedGif decoded = decodeGif(loaded.meta.png());
+                Minecraft.getInstance().execute(() -> applyDecodedGif(loaded, decoded));
+            } catch (Exception e) {
+                InventoryGif.LOGGER.warn("Failed to load GIF {}: {}", loaded.meta.png(), e.toString());
+                Minecraft.getInstance().execute(() -> {
+                    loaded.texture = FALLBACK_TEXTURE;
+                    loaded.frameDelays = null;
+                });
+            } finally {
+                GIF_DECODING.remove(name);
+            }
+        });
+    }
+
+    /** Output of successful GIF decode. */
+    private record DecodedGif(NativeImage sheet, long[] delays, int frameWidth, int frameHeight) {
+    }
+
+    /** Decodes a GIF file into frames composited onto a sheet with per-frame delays. */
+    private static DecodedGif decodeGif(java.nio.file.Path file) throws IOException {
+        try (InputStream in = Files.newInputStream(file)) {
             ImageInputStream iis = ImageIO.createImageInputStream(in);
             Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
             if (!readers.hasNext()) {
@@ -150,7 +197,6 @@ public final class AnimationTextureManager {
             try {
                 reader.setInput(iis, false, false);
                 int n = Math.max(1, reader.getNumImages(true));
-
                 int[] canvasSize = readCanvasSize(reader);
                 int fw = canvasSize[0];
                 int fh = canvasSize[1];
@@ -158,9 +204,6 @@ public final class AnimationTextureManager {
                 NativeImage sheet = new NativeImage(fw, fh * n, true);
                 long[] delays = new long[n];
 
-                // ImageIO отдаёт каждый GIF-кадр как отдельный (часто урезанный)
-                // прямоугольник, без композиции с предыдущими кадрами — поэтому
-                // собираем полный канвас сами, кадр за кадром.
                 BufferedImage canvas = new BufferedImage(fw, fh, BufferedImage.TYPE_INT_ARGB);
                 Graphics2D g = canvas.createGraphics();
                 BufferedImage previousSnapshot = null;
@@ -197,17 +240,7 @@ public final class AnimationTextureManager {
                     prevH = bi.getHeight();
                 }
                 g.dispose();
-
-                TextureManager tm = Minecraft.getInstance().getTextureManager();
-                tm.release(loaded.texture);
-                tm.register(loaded.texture, new DynamicTexture(sheet));
-                loaded.width = fw;
-                loaded.height = fh * n;
-                loaded.frameDelays = delays;
-                loaded.frameWidth = fw;
-                loaded.frameHeight = fh;
-                InventoryGif.LOGGER.info("Loaded GIF animation {} ({} frames {}x{})",
-                        loaded.meta.png(), n, fw, fh);
+                return new DecodedGif(sheet, delays, fw, fh);
             } finally {
                 try {
                     reader.dispose();
@@ -215,11 +248,21 @@ public final class AnimationTextureManager {
                 } catch (IOException ignored) {
                 }
             }
-        } catch (IOException | RuntimeException e) {
-            loaded.texture = FALLBACK_TEXTURE;
-            loaded.frameDelays = null;
-            InventoryGif.LOGGER.warn("Failed to load GIF {}: {}", loaded.meta.png(), e.toString());
         }
+    }
+
+    /** Applies a successfully decoded GIF to the loaded state and registers its texture. */
+    private static void applyDecodedGif(Loaded loaded, DecodedGif decoded) {
+        TextureManager tm = Minecraft.getInstance().getTextureManager();
+        tm.release(loaded.texture);
+        tm.register(loaded.texture, new DynamicTexture(decoded.sheet()));
+        loaded.width = decoded.frameWidth();
+        loaded.height = decoded.frameHeight() * decoded.delays().length;
+        loaded.frameDelays = decoded.delays();
+        loaded.frameWidth = decoded.frameWidth();
+        loaded.frameHeight = decoded.frameHeight();
+        InventoryGif.LOGGER.info("Loaded GIF animation {} ({} frames {}x{})",
+                loaded.meta.png(), decoded.delays().length, decoded.frameWidth(), decoded.frameHeight());
     }
 
     private record GifFrameInfo(int left, int top, int disposal, long delayMs) {
@@ -308,15 +351,19 @@ public final class AnimationTextureManager {
     /** Writes a full, already-composited frame into the sheet at row {@code frameIndex}. */
     private static void fillSheet(NativeImage sheet, BufferedImage frame, int frameIndex, int fw, int fh) {
         int oy = frameIndex * fh;
+        // Bulk raster read instead of one getRGB() call per pixel — for a
+        // multi-frame GIF this is the difference between a few milliseconds and
+        // a noticeable hitch, since getRGB(x, y) has per-call overhead that adds
+        // up fast at hundreds of thousands of calls.
+        int[] argbRow = new int[fw];
         for (int y = 0; y < fh; y++) {
+            frame.getRGB(0, y, fw, 1, argbRow, 0, fw);
             for (int x = 0; x < fw; x++) {
-                int argb = frame.getRGB(x, y);
+                int argb = argbRow[x];
                 int a = (argb >>> 24) & 0xFF;
                 int r = (argb >>> 16) & 0xFF;
                 int gg = (argb >>> 8) & 0xFF;
                 int b = argb & 0xFF;
-                // NativeImage.setPixelRGBA packs ABGR (alpha high byte), which
-                // uploads little-endian as RGBA bytes for GL_RGBA.
                 sheet.setPixelRGBA(x, oy + y, (a << 24) | (b << 16) | (gg << 8) | r);
             }
         }
