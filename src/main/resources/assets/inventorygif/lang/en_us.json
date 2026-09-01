@@ -52,5 +52,9 @@
   "inventorygif.config.dragToMove": "Drag to Move",
   "inventorygif.config.dragToMove.tooltip": "Allow moving the animation with the mouse: LMB — drag (the position is remembered per container screen; screens without their own position reuse the survival inventory one), RMB — reset the position of the current screen.",
   "inventorygif.config.debugDrawPlaceholder": "Debug Placeholder",
-  "inventorygif.config.debugDrawPlaceholder.tooltip": "Draw a translucent placeholder square instead of the texture, to verify position and scale."
+  "inventorygif.config.debugDrawPlaceholder.tooltip": "Draw a translucent placeholder square instead of the texture, to verify position and scale.",
+  "inventorygif.config.animations.picker.title": "Select Animation",
+  "inventorygif.config.animations.picker.search": "Search...",
+  "inventorygif.config.animations.picker.clear": "Clear (none)",
+  "inventorygif.config.animations.image.none": "— not set —"
 }

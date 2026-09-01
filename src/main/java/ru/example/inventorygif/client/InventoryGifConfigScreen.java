@@ -228,25 +228,21 @@ public final class InventoryGifConfigScreen {
                 Component.translatable("inventorygif.config.animations.images"));
         imagesSub.setExpanded(false);
 
-        List<String> options = new ArrayList<>(animationNames);
-        options.add(0, ""); // empty = slot disabled
-
         for (int slot = 0; slot < IMAGE_SLOTS; slot++) {
             final int idx = slot;
             AnimationPositionStorage.Image img = slot < display.size() ? display.get(slot) : null;
             String current = img != null && img.animation != null ? img.animation : "";
 
-            imagesSub.add(entries.startStringDropdownMenu(
-                            Component.translatable("inventorygif.config.animations.image", slot + 1), current)
-                    .setDefaultValue("")
-                    .setSelections(options)
-                    .setSuggestionMode(false)
-                    .setSaveConsumer(v -> {
-                        if (v.equals(current)) {
+            imagesSub.add(new AnimationFieldEntry(
+                    Component.translatable("inventorygif.config.animations.image", slot + 1),
+                    current,
+                    v -> {
+                        String value = v == null ? "" : v;
+                        if (value.equals(current)) {
                             return;
                         }
                         materializeImages(e, effective);
-                        if (v.isEmpty()) {
+                        if (value.isEmpty()) {
                             if (idx < e.images.size()) {
                                 e.images.remove(idx);
                             }
@@ -255,11 +251,10 @@ public final class InventoryGifConfigScreen {
                                 e.images.add(new AnimationPositionStorage.Image(
                                         AnimationLibrary.DEFAULT_NAME, 0, 0, 0.0));
                             }
-                            e.images.get(idx).animation = v;
+                            e.images.get(idx).animation = value;
                         }
                         AnimationPositionStorage.save();
-                    })
-                    .build());
+                    }));
 
             imagesSub.add(entries.startIntField(
                             Component.translatable("inventorygif.config.animations.image.x"),

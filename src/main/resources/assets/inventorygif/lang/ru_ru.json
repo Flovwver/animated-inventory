@@ -52,5 +52,9 @@
   "inventorygif.config.dragToMove": "Перетаскивание анимации",
   "inventorygif.config.dragToMove.tooltip": "Разрешить двигать анимацию мышью: ЛКМ — перетащить (позиция запоминается для каждого инвентаря отдельно; если своей позиции нет, берётся позиция инвентаря выживания), ПКМ — сбросить позицию этого экрана.",
   "inventorygif.config.debugDrawPlaceholder": "Отладочный квадрат",
-  "inventorygif.config.debugDrawPlaceholder.tooltip": "Рисовать полупрозрачный квадрат вместо текстуры — для проверки позиции и масштаба."
+  "inventorygif.config.debugDrawPlaceholder.tooltip": "Рисовать полупрозрачный квадрат вместо текстуры — для проверки позиции и масштаба.",
+  "inventorygif.config.animations.picker.title": "Выбор анимации",
+  "inventorygif.config.animations.picker.search": "Поиск...",
+  "inventorygif.config.animations.picker.clear": "Очистить",
+  "inventorygif.config.animations.image.none": "— не выбрано —"
 }
