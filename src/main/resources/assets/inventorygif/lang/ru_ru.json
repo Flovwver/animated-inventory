@@ -56,5 +56,6 @@
   "inventorygif.config.animations.picker.title": "Выбор анимации",
   "inventorygif.config.animations.picker.search": "Поиск...",
   "inventorygif.config.animations.picker.clear": "Очистить",
-  "inventorygif.config.animations.image.none": "— не выбрано —"
+  "inventorygif.config.animations.image.none": "— не выбрано —",
+  "inventorygif.config.animations.add_image": "Добавить картинку"
 }

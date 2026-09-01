@@ -57,7 +57,7 @@ public final class InventoryGifConfig {
             .comment("Which screens show the animation:",
                     "\"player\" = survival and creative player inventory (and modded screens extending them),",
                     "\"all\" = every container screen: chests, machines, modded GUIs (accessories etc.).")
-            .define("screenMode", "player");
+            .define("screenMode", "all");
 
     /** Allow moving the animation by dragging it with the left mouse button. */
     public static final ModConfigSpec.BooleanValue DRAG_TO_MOVE = BUILDER

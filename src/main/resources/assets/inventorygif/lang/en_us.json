@@ -56,5 +56,6 @@
   "inventorygif.config.animations.picker.title": "Select Animation",
   "inventorygif.config.animations.picker.search": "Search...",
   "inventorygif.config.animations.picker.clear": "Clear (none)",
-  "inventorygif.config.animations.image.none": "— not set —"
+  "inventorygif.config.animations.image.none": "— not set —",
+  "inventorygif.config.animations.add_image": "Add Image"
 }

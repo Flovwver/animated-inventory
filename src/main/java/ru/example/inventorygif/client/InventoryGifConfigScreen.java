@@ -4,6 +4,7 @@ import me.shedaniel.clothconfig2.api.AbstractConfigListEntry;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -27,9 +28,6 @@ public final class InventoryGifConfigScreen {
 
     private static final String CREATIVE_KEY =
             "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen";
-
-    /** Number of image slots per tree node (Cloth Config has no dynamic lists). */
-    private static final int IMAGE_SLOTS = 10;
 
     private InventoryGifConfigScreen() {
     }
@@ -129,7 +127,7 @@ public final class InventoryGifConfigScreen {
                 .setSaveConsumer(InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER::set)
                 .build());
 
-        addAnimationCategory(builder, entries);
+        addAnimationCategory(builder, entries, parent);
         addAnimationEditorCategory(builder, entries);
 
         return builder.build();
@@ -139,7 +137,7 @@ public final class InventoryGifConfigScreen {
      * "Animations" category: a collapsible tree of per-node settings.
      * Base inventories at the top, then mod -> menu -> title subcategories.
      */
-    private static void addAnimationCategory(ConfigBuilder builder, ConfigEntryBuilder entries) {
+    private static void addAnimationCategory(ConfigBuilder builder, ConfigEntryBuilder entries, Screen parent) {
         ConfigCategory category = builder.getOrCreateCategory(
                 Component.translatable("inventorygif.config.category.animations"));
 
@@ -161,8 +159,8 @@ public final class InventoryGifConfigScreen {
         // Base inventories: the root of the fallback chain.
         var base = entries.startSubCategory(Component.translatable("inventorygif.config.animations.base"));
         base.setExpanded(true);
-        base.addAll(nodeEntries(AnimationPositionStorage.SURVIVAL_KEY, all, animationNames, entries));
-        base.addAll(nodeEntries(CREATIVE_KEY, all, animationNames, entries));
+        base.addAll(nodeEntries(AnimationPositionStorage.SURVIVAL_KEY, all, animationNames, entries, parent));
+        base.addAll(nodeEntries(CREATIVE_KEY, all, animationNames, entries, parent));
         category.addEntry(base.build());
 
         // Mod-level subtrees.
@@ -170,7 +168,7 @@ public final class InventoryGifConfigScreen {
             if (!modKey.startsWith("@mod:")) {
                 continue;
             }
-            category.addEntry(buildNodeSubtree(modKey, all, children, animationNames, entries, 0));
+            category.addEntry(buildNodeSubtree(modKey, all, children, animationNames, entries, 0, parent));
         }
     }
 
@@ -179,7 +177,7 @@ public final class InventoryGifConfigScreen {
                                                             Map<String, AnimationPositionStorage.Entry> all,
                                                             Map<String, List<String>> children,
                                                             List<String> animationNames,
-                                                            ConfigEntryBuilder entries, int depth) {
+                                                            ConfigEntryBuilder entries, int depth, Screen parent) {
         AnimationPositionStorage.Entry entry = all.get(key);
         var sub = entries.startSubCategory(Component.literal(displayLabel(key, entry)));
         sub.setExpanded(depth <= 0);
@@ -190,11 +188,11 @@ public final class InventoryGifConfigScreen {
         var defaultBranch = entries.startSubCategory(
                 Component.translatable("inventorygif.config.animations.default"));
         defaultBranch.setExpanded(depth <= 0);
-        defaultBranch.addAll(nodeEntries(key, all, animationNames, entries));
+        defaultBranch.addAll(nodeEntries(key, all, animationNames, entries, parent));
         sub.add(defaultBranch.build());
 
         for (String child : children.getOrDefault(key, List.of())) {
-            sub.add(buildNodeSubtree(child, all, children, animationNames, entries, depth + 1));
+            sub.add(buildNodeSubtree(child, all, children, animationNames, entries, depth + 1, parent));
         }
         return sub.build();
     }
@@ -203,7 +201,7 @@ public final class InventoryGifConfigScreen {
     private static List<AbstractConfigListEntry> nodeEntries(String key,
                                                              Map<String, AnimationPositionStorage.Entry> all,
                                                              List<String> animationNames,
-                                                             ConfigEntryBuilder entries) {
+                                                             ConfigEntryBuilder entries, Screen parent) {
         AnimationPositionStorage.Entry e = all.get(key);
         // When the node inherits, display and edit the effective (parent) values;
         // the first edit materializes them into this node.
@@ -228,10 +226,17 @@ public final class InventoryGifConfigScreen {
                 Component.translatable("inventorygif.config.animations.images"));
         imagesSub.setExpanded(false);
 
-        for (int slot = 0; slot < IMAGE_SLOTS; slot++) {
+        // Ровно по одному набору виджетов на реально существующую картинку —
+        // никаких пустых слотов "про запас", в отличие от старого фиксированного
+        // IMAGE_SLOTS. Список картинок при удалении меняет размер во время
+        // построения экрана, поэтому и добавление, и удаление слота
+        // пересоздают весь конфиг-экран (см. AddImageButtonEntry / onPick ниже) —
+        // так индексы слотов в уже построенных виджетах никогда не рассинхронизируются
+        // со списком e.images/effective.images.
+        for (int slot = 0; slot < display.size(); slot++) {
             final int idx = slot;
-            AnimationPositionStorage.Image img = slot < display.size() ? display.get(slot) : null;
-            String current = img != null && img.animation != null ? img.animation : "";
+            AnimationPositionStorage.Image img = display.get(slot);
+            String current = img.animation != null ? img.animation : "";
 
             imagesSub.add(new AnimationFieldEntry(
                     Component.translatable("inventorygif.config.animations.image", slot + 1),
@@ -246,19 +251,18 @@ public final class InventoryGifConfigScreen {
                             if (idx < e.images.size()) {
                                 e.images.remove(idx);
                             }
+                            AnimationPositionStorage.save();
+                            // Слот исчез — список сдвинулся, пересобираем экран,
+                            // чтобы виджеты снова совпадали с e.images по индексам.
+                            Minecraft.getInstance().setScreen(InventoryGifConfigScreen.create(parent));
                         } else {
-                            while (e.images.size() <= idx) {
-                                e.images.add(new AnimationPositionStorage.Image(
-                                        AnimationLibrary.DEFAULT_NAME, 0, 0, 0.0));
-                            }
                             e.images.get(idx).animation = value;
+                            AnimationPositionStorage.save();
                         }
-                        AnimationPositionStorage.save();
                     }));
 
             imagesSub.add(entries.startIntField(
-                            Component.translatable("inventorygif.config.animations.image.x"),
-                            img != null ? img.x : 0)
+                            Component.translatable("inventorygif.config.animations.image.x"), img.x)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
                         if (idx >= display.size() || v == display.get(idx).x) {
@@ -271,8 +275,7 @@ public final class InventoryGifConfigScreen {
                     .build());
 
             imagesSub.add(entries.startIntField(
-                            Component.translatable("inventorygif.config.animations.image.y"),
-                            img != null ? img.y : 0)
+                            Component.translatable("inventorygif.config.animations.image.y"), img.y)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
                         if (idx >= display.size() || v == display.get(idx).y) {
@@ -286,7 +289,7 @@ public final class InventoryGifConfigScreen {
 
             imagesSub.add(entries.startDoubleField(
                             Component.translatable("inventorygif.config.animations.image.scale"),
-                            img != null && img.scale > 0 ? img.scale : 0.0)
+                            img.scale > 0 ? img.scale : 0.0)
                     .setMin(0.0).setMax(10.0)
                     .setTooltip(Component.translatable("inventorygif.config.animations.image.scale.tooltip"))
                     .setSaveConsumer(v -> {
@@ -299,6 +302,8 @@ public final class InventoryGifConfigScreen {
                     })
                     .build());
         }
+
+        imagesSub.add(new AddImageButtonEntry(e, effective, parent));
 
         list.add(imagesSub.build());
         return list;

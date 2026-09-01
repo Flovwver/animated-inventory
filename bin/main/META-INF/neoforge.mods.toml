@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+
+license="MIT"
+
+[[mods]]
+modId="inventorygif"
+version="1.0.0"
+displayName="Inventory GIF"
+authors="Example"
+description='''Draws an animated sprite sheet overlay on top of the vanilla player inventory screen.'''
+
+[[dependencies.inventorygif]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.inventorygif]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.22)"
+ordering="NONE"
+side="BOTH"
+
+# Cloth Config powers the in-game settings screen (the "Config" button in the mod list).
+[[dependencies.inventorygif]]
+modId="cloth_config"
+type="required"
+versionRange="[15.0.0,)"
+ordering="AFTER"
+side="CLIENT"
