@@ -60,5 +60,7 @@
   "inventorygif.config.animations.add_image": "Добавить картинку",
   "inventorygif.config.animations.locked": "Заблокировано (без перетаскивания)",
   "inventorygif.config.animations.locked.tooltip": "Блокирует перетаскивание и сброс ПКМ только для этого узла. Наследующие экраны не затрагиваются.",
-  "inventorygif.config.animations.delete_node": "Удалить настройки этого узла"
+  "inventorygif.config.animations.delete_node": "Удалить настройки этого узла",
+  "key.categories.inventorygif": "Inventory GIF",
+  "key.inventorygif.toggle_lock": "Переключить блокировку (держать Ctrl)"
 }

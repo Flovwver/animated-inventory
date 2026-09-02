@@ -52,6 +52,8 @@ import ru.example.inventorygif.InventoryGif;
 @EventBusSubscriber(modid = InventoryGif.MODID, value = Dist.CLIENT)
 public final class InventoryGifRenderer {
 
+    private static final int HANDLE_SIZE = 9;
+
     private InventoryGifRenderer() {
     }
 
@@ -98,7 +100,27 @@ public final class InventoryGifRenderer {
 
         for (PlacedImage image : placeImages(screen)) {
             drawImage(guiGraphics, screen, image);
+            drawResizeHandle(guiGraphics, image, AnimationPositionStorage.entryFor(screen).locked);
         }
+    }
+
+    static int handleX(PlacedImage image) {
+        return image.x() + scaledWidth(image.spec()) - HANDLE_SIZE;
+    }
+
+    static int handleY(PlacedImage image) {
+        return image.y() + scaledHeight(image.spec()) - HANDLE_SIZE;
+    }
+
+    private static void drawResizeHandle(GuiGraphics guiGraphics, PlacedImage image, boolean locked) {
+        if (!InventoryGifConfig.DRAG_TO_MOVE.get()) {
+            return;
+        }
+        int handleX = handleX(image);
+        int handleY = handleY(image);
+        int color = locked ? 0x80888888 : 0xC0FFFFFF;
+        guiGraphics.fill(handleX, handleY, handleX + HANDLE_SIZE, handleY + HANDLE_SIZE, color);
+        guiGraphics.renderOutline(handleX, handleY, HANDLE_SIZE, HANDLE_SIZE, 0xFF000000);
     }
 
     /** One image laid out on the screen, ready to draw. */
@@ -131,7 +153,11 @@ public final class InventoryGifRenderer {
                 x = Mth.clamp(drag[1], 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(spec.spec())));
                 y = Mth.clamp(drag[2], 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(spec.spec())));
             }
-            result.add(new PlacedImage(spec.spec(), loadFor(spec.spec()), x, y));
+            Double liveScale = AnimationDragHandler.activeResizeScale(screen, i);
+            AnimationMapping.AnimationSpec effectiveSpec = liveScale != null
+                    ? new AnimationMapping.AnimationSpec(spec.spec().meta(), liveScale.floatValue())
+                    : spec.spec();
+            result.add(new PlacedImage(effectiveSpec, loadFor(effectiveSpec), x, y));
         }
         return result;
     }

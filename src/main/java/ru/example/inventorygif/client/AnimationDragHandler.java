@@ -47,11 +47,27 @@ public final class AnimationDragHandler {
     private static double dragStartMouseX;
     private static double dragStartMouseY;
 
+    private static AbstractContainerScreen<?> resizeScreen;
+    private static int resizeIndex = -1;
+    private static double resizeStartMouseDist;
+    private static double resizeStartScale;
+    private static double currentResizeScale;
+    private static int resizeAnchorX;
+    private static int resizeAnchorY;
+
     private AnimationDragHandler() {
     }
 
     static boolean isDragging() {
         return dragScreen != null;
+    }
+
+    static boolean isResizing() {
+        return resizeScreen != null;
+    }
+
+    static Double activeResizeScale(AbstractContainerScreen<?> screen, int index) {
+        return resizeScreen == screen && resizeIndex == index ? currentResizeScale : null;
     }
 
     /**
@@ -73,6 +89,10 @@ public final class AnimationDragHandler {
             dragScreen = null;
             dragIndex = -1;
         }
+        if (resizeScreen != null && resizeScreen != screen) {
+            resizeScreen = null;
+            resizeIndex = -1;
+        }
     }
 
     @SubscribeEvent
@@ -89,6 +109,30 @@ public final class AnimationDragHandler {
 
         // Hit-test every image of the node; each image is dragged individually.
         List<InventoryGifRenderer.PlacedImage> images = InventoryGifRenderer.placeImages(screen);
+
+        if (event.getButton() == 0 && InventoryGifConfig.DRAG_TO_MOVE.get()
+                && !AnimationPositionStorage.entryFor(screen).locked) {
+            for (int i = 0; i < images.size(); i++) {
+                InventoryGifRenderer.PlacedImage image = images.get(i);
+                int handleX = InventoryGifRenderer.handleX(image);
+                int handleY = InventoryGifRenderer.handleY(image);
+                if (mouseX >= handleX && mouseX < handleX + 9
+                        && mouseY >= handleY && mouseY < handleY + 9) {
+                    resizeScreen = screen;
+                    resizeIndex = i;
+                    resizeAnchorX = image.x();
+                    resizeAnchorY = image.y();
+                    resizeStartScale = image.spec().scale();
+                    double dx = mouseX - resizeAnchorX;
+                    double dy = mouseY - resizeAnchorY;
+                    resizeStartMouseDist = Math.max(1.0, Math.sqrt(dx * dx + dy * dy));
+                    currentResizeScale = resizeStartScale;
+                    event.setCanceled(true);
+                    return;
+                }
+            }
+        }
+
         int hitIndex = -1;
         for (int i = 0; i < images.size(); i++) {
             InventoryGifRenderer.PlacedImage image = images.get(i);
@@ -126,6 +170,15 @@ public final class AnimationDragHandler {
 
     @SubscribeEvent
     public static void onMouseDragged(ScreenEvent.MouseDragged.Pre event) {
+        if (resizeScreen != null && event.getScreen() == resizeScreen) {
+            double dx = event.getMouseX() - resizeAnchorX;
+            double dy = event.getMouseY() - resizeAnchorY;
+            double distance = Math.max(1.0, Math.sqrt(dx * dx + dy * dy));
+            double newScale = resizeStartScale * (distance / resizeStartMouseDist);
+            currentResizeScale = Math.max(0.05, Math.min(10.0, newScale));
+            event.setCanceled(true);
+            return;
+        }
         if (dragScreen == null || event.getScreen() != dragScreen) {
             return;
         }
@@ -138,6 +191,25 @@ public final class AnimationDragHandler {
 
     @SubscribeEvent
     public static void onMouseReleased(ScreenEvent.MouseButtonReleased.Pre event) {
+        if (resizeScreen != null) {
+            if (event.getScreen() == resizeScreen && resizeIndex >= 0) {
+                AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(resizeScreen);
+                AnimationPositionStorage.Entry effective = AnimationPositionStorage.resolveEffective(resizeScreen);
+                if (entry.inherit || entry.images.size() != effective.images.size()) {
+                    entry.images.clear();
+                    effective.images.forEach(i -> entry.images.add(i.copy()));
+                    entry.inherit = false;
+                }
+                if (resizeIndex < entry.images.size()) {
+                    entry.images.get(resizeIndex).scale = currentResizeScale;
+                    AnimationPositionStorage.save();
+                }
+                event.setCanceled(true);
+            }
+            resizeScreen = null;
+            resizeIndex = -1;
+            return;
+        }
         if (dragScreen == null) {
             return;
         }
