@@ -102,6 +102,9 @@ public final class AnimationDragHandler {
         if (hitIndex < 0 || !InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
         }
+        if (AnimationPositionStorage.entryFor(screen).locked) {
+            return;
+        }
 
         if (event.getButton() == 0) {
             InventoryGifRenderer.PlacedImage hit = images.get(hitIndex);

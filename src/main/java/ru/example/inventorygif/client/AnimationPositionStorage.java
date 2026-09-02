@@ -72,6 +72,8 @@ public final class AnimationPositionStorage {
         public String label;
         /** True = use the parent node's images dynamically. */
         public boolean inherit;
+        /** True = dragging and right-click reset are disabled for this node. */
+        public boolean locked;
         /** Parent node key in the settings tree. */
         public String parentKey;
         /** All images of this node; each has its own position, drawn simultaneously. */
@@ -231,6 +233,7 @@ public final class AnimationPositionStorage {
                 obj.addProperty("label", v.label);
             }
             obj.addProperty("inherit", v.inherit);
+            obj.addProperty("locked", v.locked);
             if (v.parentKey != null && !v.parentKey.isEmpty()) {
                 obj.addProperty("parent", v.parentKey);
             }
@@ -278,6 +281,9 @@ public final class AnimationPositionStorage {
                         JsonObject obj = e.getValue().getAsJsonObject();
                         String label = obj.has("label") ? obj.get("label").getAsString() : "";
                         boolean inherit = obj.has("inherit") && obj.get("inherit").getAsBoolean();
+                        boolean locked = obj.has("locked")
+                            ? obj.get("locked").getAsBoolean()
+                            : e.getKey().equals(SURVIVAL_KEY);
                         String parentKey = obj.has("parent") ? obj.get("parent").getAsString() : null;
 
                         List<Image> images = new ArrayList<>();
@@ -304,7 +310,9 @@ public final class AnimationPositionStorage {
                             images = migrateLegacyImages(animation, x, y, scale, extras);
                         }
 
-                        entries.put(e.getKey(), new Entry(label, inherit, parentKey, images));
+                        Entry entry = new Entry(label, inherit, parentKey, images);
+                        entry.locked = locked;
+                        entries.put(e.getKey(), entry);
                     }
                 }
             } catch (Exception e) {
@@ -397,8 +405,18 @@ public final class AnimationPositionStorage {
         survivalImages.add(new Image(AnimationLibrary.DEFAULT_NAME,
                 InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get(), 0.0));
         entries.put(SURVIVAL_KEY, new Entry("Survival Inventory", false, null, survivalImages));
+        entries.get(SURVIVAL_KEY).locked = true;
         entries.put(CREATIVE_KEY, new Entry("Creative Inventory", false, null,
                 List.of(new Image(AnimationLibrary.DEFAULT_NAME,
                         InventoryGifConfig.X_OFFSET.get(), InventoryGifConfig.Y_OFFSET.get(), 0.0))));
+    }
+
+    /** Removes a node and all descendants from the persisted settings tree. */
+    public static void removeSubtree(String key, Map<String, List<String>> children) {
+        for (String child : children.getOrDefault(key, List.of())) {
+            removeSubtree(child, children);
+        }
+        entries().remove(key);
+        save();
     }
 }

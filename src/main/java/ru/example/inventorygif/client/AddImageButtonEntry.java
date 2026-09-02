@@ -38,7 +38,11 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
                         AnimationPositionStorage.save();
                     }
                     // Rebuild so the new slot's widgets actually exist.
-                    Minecraft.getInstance().setScreen(InventoryGifConfigScreen.create(parentOfConfigScreen));
+                    Screen current = Minecraft.getInstance().screen;
+                    InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
+                    Screen rebuilt = InventoryGifConfigScreen.create(parentOfConfigScreen);
+                    InventoryGifConfigScreen.restoreState(rebuilt, state);
+                    Minecraft.getInstance().setScreen(rebuilt);
                 })
                 .bounds(0, 0, 200, 20)
                 .build();
