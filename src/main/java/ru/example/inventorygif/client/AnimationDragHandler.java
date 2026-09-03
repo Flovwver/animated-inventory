@@ -116,8 +116,8 @@ public final class AnimationDragHandler {
                 InventoryGifRenderer.PlacedImage image = images.get(i);
                 int handleX = InventoryGifRenderer.handleX(image);
                 int handleY = InventoryGifRenderer.handleY(image);
-                if (mouseX >= handleX && mouseX < handleX + 9
-                        && mouseY >= handleY && mouseY < handleY + 9) {
+                if (mouseX >= handleX && mouseX < handleX + InventoryGifRenderer.HANDLE_SIZE
+                    && mouseY >= handleY && mouseY < handleY + InventoryGifRenderer.HANDLE_SIZE) {
                     resizeScreen = screen;
                     resizeIndex = i;
                     resizeAnchorX = image.x();

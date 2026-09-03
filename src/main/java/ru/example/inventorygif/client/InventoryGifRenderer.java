@@ -52,7 +52,7 @@ import ru.example.inventorygif.InventoryGif;
 @EventBusSubscriber(modid = InventoryGif.MODID, value = Dist.CLIENT)
 public final class InventoryGifRenderer {
 
-    private static final int HANDLE_SIZE = 9;
+    static final int HANDLE_SIZE = 3;
 
     private InventoryGifRenderer() {
     }
@@ -98,9 +98,12 @@ public final class InventoryGifRenderer {
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
 
+        boolean locked = AnimationPositionStorage.entryFor(screen).locked;
         for (PlacedImage image : placeImages(screen)) {
             drawImage(guiGraphics, screen, image);
-            drawResizeHandle(guiGraphics, image, AnimationPositionStorage.entryFor(screen).locked);
+            if (!locked) {
+                drawResizeHandle(guiGraphics, screen, image);
+            }
         }
     }
 
@@ -112,15 +115,19 @@ public final class InventoryGifRenderer {
         return image.y() + scaledHeight(image.spec()) - HANDLE_SIZE;
     }
 
-    private static void drawResizeHandle(GuiGraphics guiGraphics, PlacedImage image, boolean locked) {
+    private static void drawResizeHandle(GuiGraphics guiGraphics, AbstractContainerScreen<?> screen,
+                                         PlacedImage image) {
         if (!InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
         }
         int handleX = handleX(image);
         int handleY = handleY(image);
-        int color = locked ? 0x80888888 : 0xC0FFFFFF;
-        guiGraphics.fill(handleX, handleY, handleX + HANDLE_SIZE, handleY + HANDLE_SIZE, color);
+
+        guiGraphics.pose().pushPose();
+        guiGraphics.pose().translate(-screen.getGuiLeft(), -screen.getGuiTop(), 0);
+        guiGraphics.fill(handleX, handleY, handleX + HANDLE_SIZE, handleY + HANDLE_SIZE, 0xC0FFFFFF);
         guiGraphics.renderOutline(handleX, handleY, HANDLE_SIZE, HANDLE_SIZE, 0xFF000000);
+        guiGraphics.pose().popPose();
     }
 
     /** One image laid out on the screen, ready to draw. */
