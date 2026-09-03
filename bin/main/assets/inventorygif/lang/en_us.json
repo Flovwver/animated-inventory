@@ -57,5 +57,10 @@
   "inventorygif.config.animations.picker.search": "Search...",
   "inventorygif.config.animations.picker.clear": "Clear (none)",
   "inventorygif.config.animations.image.none": "— not set —",
-  "inventorygif.config.animations.add_image": "Add Image"
+  "inventorygif.config.animations.add_image": "Add Image",
+  "inventorygif.config.animations.locked": "Locked (no drag/reset)",
+  "inventorygif.config.animations.locked.tooltip": "Blocks dragging and right-click reset for this node only. Inheriting screens are unaffected.",
+  "inventorygif.config.animations.delete_node": "Delete settings for this node",
+  "key.categories.inventorygif": "Inventory GIF",
+  "key.inventorygif.toggle_lock": "Toggle Lock (hold Ctrl)"
 }

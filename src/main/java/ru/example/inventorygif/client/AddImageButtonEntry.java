@@ -41,8 +41,8 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
                     Screen current = Minecraft.getInstance().screen;
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     Screen rebuilt = InventoryGifConfigScreen.create(parentOfConfigScreen);
-                    InventoryGifConfigScreen.restoreState(rebuilt, state);
                     Minecraft.getInstance().setScreen(rebuilt);
+                    InventoryGifConfigScreen.restoreState(rebuilt, state);
                 })
                 .bounds(0, 0, 200, 20)
                 .build();

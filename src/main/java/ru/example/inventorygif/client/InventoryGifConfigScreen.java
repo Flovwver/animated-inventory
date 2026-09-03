@@ -297,8 +297,8 @@ public final class InventoryGifConfigScreen {
                             Screen currentScreen = Minecraft.getInstance().screen;
                             ScreenState state = captureState(currentScreen);
                             Screen rebuilt = InventoryGifConfigScreen.create(parent);
-                            restoreState(rebuilt, state);
                             Minecraft.getInstance().setScreen(rebuilt);
+                            restoreState(rebuilt, state);
                         } else {
                             e.images.get(idx).animation = value;
                             AnimationPositionStorage.save();

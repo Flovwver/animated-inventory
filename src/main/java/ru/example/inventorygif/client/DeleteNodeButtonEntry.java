@@ -25,8 +25,8 @@ public final class DeleteNodeButtonEntry extends AbstractConfigListEntry<Void> {
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     AnimationPositionStorage.removeSubtree(key, children);
                     Screen rebuilt = InventoryGifConfigScreen.create(parent);
-                    InventoryGifConfigScreen.restoreState(rebuilt, state);
                     Minecraft.getInstance().setScreen(rebuilt);
+                    InventoryGifConfigScreen.restoreState(rebuilt, state);
                 })
                 .bounds(0, 0, 200, 20)
                 .build();
