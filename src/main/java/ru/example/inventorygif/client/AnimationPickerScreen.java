@@ -1,14 +1,14 @@
 package ru.example.inventorygif.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-import javax.annotation.Nullable;
+import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -72,15 +72,15 @@ public final class AnimationPickerScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
-        guiGraphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF);
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
+        this.extractBackground(guiGraphics, mouseX, mouseY, partialTick);
+        super.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
+        guiGraphics.centeredText(font, title, width / 2, 12, 0xFFFFFFFF);
     }
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.gui.setScreen(parent);
     }
 
     @Override
@@ -110,7 +110,7 @@ public final class AnimationPickerScreen extends Screen {
         }
 
         @Override
-        protected int getScrollbarPosition() {
+        protected int scrollBarX() {
             return width / 2 + getRowWidth() / 2 + 6;
         }
 
@@ -127,24 +127,24 @@ public final class AnimationPickerScreen extends Screen {
             }
 
             @Override
-            public void render(GuiGraphics guiGraphics, int index, int top, int left, int width, int height,
-                                int mouseX, int mouseY, boolean hovered, float partialTick) {
+            public void extractContent(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, boolean hovered, float partialTick) {
+                int top = getContentY(), left = getContentX(), width = getContentWidth(), height = getContentHeight();
                 boolean selected = name.equals(currentValue);
                 int color = selected ? 0xFFFFFF55 : 0xFFFFFFFF;
-                guiGraphics.drawString(font, name, left + 4, top + height / 2 - 4, color);
+                guiGraphics.text(font, name, left + 4, top + height / 2 - 4, color);
 
                 AnimationLibrary.AnimationMeta meta = AnimationLibrary.get(name);
                 if (meta != null) {
                     String info = meta.frameCount() + " fr, " + meta.frameWidth() + "x" + meta.frameHeight();
                     int infoWidth = font.width(info);
-                    guiGraphics.drawString(font, info, left + width - infoWidth - 4,
+                    guiGraphics.text(font, info, left + width - infoWidth - 4,
                             top + height / 2 - 4, 0xFFAAAAAA);
                 }
             }
 
             @Override
-            public boolean mouseClicked(double mouseX, double mouseY, int button) {
-                if (button == 0) {
+            public boolean mouseClicked(net.minecraft.client.input.MouseButtonEvent event, boolean doubleClick) {
+                if (event.button() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) {
                     pick(name);
                     return true;
                 }

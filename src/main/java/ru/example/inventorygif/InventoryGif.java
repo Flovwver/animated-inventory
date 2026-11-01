@@ -1,42 +1,41 @@
 package ru.example.inventorygif;
 
-import com.mojang.logging.LogUtils;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.config.ModConfig;
-import net.neoforged.fml.loading.FMLEnvironment;
-import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import org.slf4j.Logger;
-import ru.example.inventorygif.client.InventoryGifConfig;
-import ru.example.inventorygif.client.InventoryGifConfigScreen;
+import org.slf4j.LoggerFactory;
+import ru.example.inventorygif.client.*;
 
-/**
- * Inventory GIF — client-only mod that draws an animated sprite sheet
- * on top of the vanilla player inventory screen.
- *
- * The value here must match the modId entry in META-INF/neoforge.mods.toml.
- */
-@Mod(InventoryGif.MODID)
-public class InventoryGif {
-
+public final class InventoryGif implements ClientModInitializer {
     public static final String MODID = "inventorygif";
-
-    public static final Logger LOGGER = LogUtils.getLogger();
-
-    public InventoryGif(ModContainer modContainer) {
-        // Client config file: config/inventorygif-client.toml
-        modContainer.registerConfig(ModConfig.Type.CLIENT, InventoryGifConfig.SPEC);
-
-        // In-game settings screen: enables the "Config" button in the mod list.
-        // Client-only, so guard the registration to keep the class loadable on servers.
-        if (FMLEnvironment.dist == Dist.CLIENT) {
-            modContainer.registerExtensionPoint(IConfigScreenFactory.class,
-                    (container, parent) -> InventoryGifConfigScreen.create(parent));
-        }
-
-        // Client rendering is handled by ru.example.inventorygif.client.InventoryGifRenderer,
-        // which is auto-registered via @EventBusSubscriber(Dist.CLIENT).
-        LOGGER.info("Inventory GIF mod loaded");
+    public static final Logger LOGGER = LoggerFactory.getLogger(MODID);
+    @Override public void onInitializeClient() {
+        InventoryGifConfig.SPEC.save();
+        InventoryGifKeybinds.register();
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (!(screen instanceof AbstractContainerScreen<?> container)) return;
+            ScreenEvents.afterExtract(screen).register((s, graphics, x, y, delta) ->
+                    InventoryGifRenderer.render(container, graphics));
+            ScreenMouseEvents.allowMouseClick(screen).register((s, input) -> {
+                var event = new AnimationDragHandler.PointerEvent(s, input);
+                AnimationDragHandler.onMousePressed(event);
+                return event.allowed();
+            });
+            ScreenMouseEvents.allowMouseDrag(screen).register((s, input, dx, dy) -> {
+                var event = new AnimationDragHandler.PointerEvent(s, input);
+                AnimationDragHandler.onMouseDragged(event);
+                return event.allowed();
+            });
+            ScreenMouseEvents.allowMouseRelease(screen).register((s, input) -> {
+                var event = new AnimationDragHandler.PointerEvent(s, input);
+                AnimationDragHandler.onMouseReleased(event);
+                return event.allowed();
+            });
+            ScreenKeyboardEvents.allowKeyPress(screen).register(InventoryGifKeybinds::allowKeyPress);
+        });
+        LOGGER.info("Inventory GIF loaded for Fabric");
     }
 }

@@ -2,7 +2,7 @@ package ru.example.inventorygif.client;
 
 import me.shedaniel.clothconfig2.api.AbstractConfigListEntry;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -43,8 +43,8 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
     }
 
     private void openPicker(Consumer<String> onPick) {
-        Screen current = Minecraft.getInstance().screen;
-        Minecraft.getInstance().setScreen(new AnimationPickerScreen(current, value, picked -> {
+        Screen current = Minecraft.getInstance().gui.screen();
+        Minecraft.getInstance().gui.setScreen(new AnimationPickerScreen(current, value, picked -> {
             value = picked;
             valueButton.setMessage(labelFor(value));
             onPick.accept(picked);
@@ -62,16 +62,16 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int index, int y, int x, int entryWidth, int entryHeight,
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int index, int y, int x, int entryWidth, int entryHeight,
                         int mouseX, int mouseY, boolean isHovered, float delta) {
-        guiGraphics.drawString(Minecraft.getInstance().font, getFieldName(), x, y + entryHeight / 2 - 4,
+        guiGraphics.text(Minecraft.getInstance().font, getFieldName(), x, y + entryHeight / 2 - 4,
                 0xFFFFFF, false);
 
         int buttonWidth = 150;
         valueButton.setX(x + entryWidth - buttonWidth);
         valueButton.setY(y);
         valueButton.setWidth(buttonWidth);
-        valueButton.render(guiGraphics, mouseX, mouseY, delta);
+        valueButton.extractRenderState(guiGraphics, mouseX, mouseY, delta);
     }
 
     @Override

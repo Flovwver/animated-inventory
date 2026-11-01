@@ -3,10 +3,10 @@ package ru.example.inventorygif.client;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import net.neoforged.fml.loading.FMLPaths;
+import net.fabricmc.loader.api.FabricLoader;
 import ru.example.inventorygif.InventoryGif;
 
-import javax.annotation.Nullable;
+import org.jspecify.annotations.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -51,7 +51,7 @@ public final class AnimationLibrary {
     public static final String DEFAULT_NAME = "animation";
 
     private static final Gson GSON = new Gson();
-    private static final Path DIR = FMLPaths.GAMEDIR.get().resolve("inventorygif").resolve("animations");
+    private static final Path DIR = FabricLoader.getInstance().getGameDir().resolve("inventorygif").resolve("animations");
 
     private static final String EXAMPLE_PNG_CLASSPATH = "/assets/inventorygif/textures/gui/animation.png";
     private static final String EXAMPLE_JSON_CLASSPATH = "/assets/inventorygif/example_animation.json";

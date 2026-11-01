@@ -11,7 +11,7 @@ import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
-import net.neoforged.fml.loading.FMLPaths;
+import net.fabricmc.loader.api.FabricLoader;
 import ru.example.inventorygif.InventoryGif;
 
 import java.io.IOException;
@@ -96,7 +96,7 @@ public final class AnimationPositionStorage {
     private static final String MENU_PREFIX = "@menu:";
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FMLPaths.CONFIGDIR.get().resolve("inventorygif-positions.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("inventorygif-positions.json");
 
     private static final Set<String> TLD_PACKAGES = Set.of(
             "net", "org", "com", "io", "dev", "me", "xyz", "de", "fr", "uk", "ru", "cn", "jp", "ua", "pl", "it", "es", "se", "top", "site");

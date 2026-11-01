@@ -1,136 +1,42 @@
-# Inventory GIF — анимация поверх ванильного инвентаря
+# Inventory GIF — Fabric 26.3
 
-Клиентский мод для **Minecraft 1.21.1 + NeoForge**. При открытии стандартного
-инвентаря игрока (`InventoryScreen`) рядом с окном инвентаря отображается
-зацикленная анимация из PNG sprite sheet (8 кадров 128×128, расположены
-вертикально, итоговая текстура 128×1024).
+Клиентский мод для **Minecraft 26.3**, **Fabric Loader 0.20.1+**, **Java 25**.
+Показывает PNG sprite sheets и GIF поверх инвентарей и контейнеров.
 
-Ванильный экран не заменяется: мод подписывается на клиентское событие
-`ContainerScreenEvent.Render.Foreground` и дорисовывает анимацию поверх уже
-отрисованного GUI, но под тултипами и перетаскиваемым предметом.
+## Установка
 
-**Sprite sheet загружается из папки инстанса** (директории игры), а не из jar —
-свой PNG можно подложить без пересборки мода. **Все параметры настраиваются
-в `config/inventorygif-client.toml`**, как в большинстве NeoForge-модов.
+Соберите проект командой `.\gradlew.bat build`.
+Готовый мод: `build/libs/inventorygif-1.0.0+26.3.jar`.
+Положите его в папку `mods` вместе с **Fabric API для 26.3** и
+**Cloth Config 26.3.159 для Fabric**. Серверу мод не требуется.
 
-## Структура проекта
+## Управление
 
-```text
-src/main/java/
-    ru/example/inventorygif/
-        InventoryGif.java                      # главный класс мода (@Mod), регистрация конфига
-        client/
-            InventoryGifRenderer.java          # клиентский рендерер (@EventBusSubscriber)
-            InventoryGifConfig.java            # ModConfigSpec — все настройки
-            AnimationTextureManager.java       # загрузка PNG из папки инстанса
+- `Ctrl+O` в инвентаре — настройки, библиотека анимаций и редактор кадров.
+- `Ctrl+L` — блокировка/разблокировка изображений текущего экрана.
+- Левая кнопка — перемещение изображения; уголок — изменение размера.
+- Правая кнопка по изображению — сброс настроек экрана к родительским.
 
-src/main/resources/
-    META-INF/
-        neoforge.mods.toml                     # метаданные мода
-    assets/
-        inventorygif/
-            textures/
-                gui/
-                    animation.png              # встроенный дефолт (фолбэк + источник авто-распаковки)
+Клавиши O и L можно переназначить в настройках управления; Ctrl остаётся обязательным.
 
-tools/GenerateAnimation.java                   # генератор тестовой текстуры (не часть мода)
-```
+## Файлы пользователя
 
-## Как собрать jar
+- `config/inventorygif-client.toml` — общие настройки; используется прежний формат.
+- `config/inventorygif-positions.json` — дерево настроек экранов и позиции изображений.
+- `inventorygif/animations/` — пользовательские PNG/GIF и JSON с параметрами кадров.
 
-```powershell
-.\gradlew.bat build
-```
+Пути считаются от папки игры. Настройки экранов поддерживают наследование,
+несколько изображений, отдельные позиции и масштабы. Изменённые анимации
+перечитываются автоматически. Sprite sheet содержит кадры вертикально сверху вниз.
 
-Готовый файл: `build\libs\inventorygif-1.0.0.jar`.
-Положите его в `.minecraft\mods\` клиента с установленным **NeoForge 21.1.x**
-для Minecraft 1.21.1. Сервер модифицировать не нужно.
+## Разработка
 
-## Как запустить dev-клиент
+`.\gradlew.bat runClient` запускает клиент для проверки в игре.
+Используются Fabric Loom 1.17.21 и Gradle 9.6.0, официальные имена Minecraft.
+Рендеринг зарегистрирован через Fabric ScreenEvents.afterExtract; ввод — через
+ScreenMouseEvents и ScreenKeyboardEvents. Метаданные ограничивают загрузку клиентом.
+Night Config включён в JAR для чтения существующего TOML.
 
-```powershell
-.\gradlew.bat runClient
-```
-
-В игре нажмите `E` — справа от окна инвентаря появится анимация.
-
-## Где находится анимация (PNG)
-
-**Рабочая текстура**: `<папка инстанса>\assets\inventorygif\animation.png`
-(для обычного лаунчера — `.minecraft\assets\inventorygif\animation.png`).
-
-При первом запуске, если файла нет, мод **сам распакует туда встроенный дефолт** —
-вы сразу увидите, куда класть свою картинку. Файл перечитывается автоматически
-при изменении на диске (проверка раз в 0,5 с, только пока открыт инвентарь).
-Если файл удалить или он битый — используется встроенная текстура из jar.
-
-Путь можно изменить в конфиге (`texturePath`, относительно папки игры или абсолютный).
-
-## Настройки: config/inventorygif-client.toml
-
-Файл создаётся автоматически при первом запуске клиента. Все параметры:
-
-| Опция | По умолчанию | Описание |
-|---|---|---|
-| `xOffset` | `178` | Смещение по X от угла инвентаря (`getGuiLeft()`), в GUI-пикселях. Инвентарь шириной 176 px, значит 178 — правее него |
-| `yOffset` | `20` | Смещение по Y от угла инвентаря (`getGuiTop()`) |
-| `scale` | `0.75` | Масштаб: `1.0` = кадр в нативном размере 128×128 px, `0.75` = 96×96 px на экране |
-| `frameDurationMs` | `100` | Длительность кадра в миллисекундах (100 мс = 10 fps). Меньше — быстрее |
-| `frameCount` | `8` | Число кадров в sprite sheet (кадры идут вертикально) |
-| `frameSize` | `128` | Размер одного кадра в пикселях (кадры квадратные) |
-| `texturePath` | `assets/inventorygif/animation.png` | Путь к PNG относительно папки игры (или абсолютный) |
-| `screenMode` | `player` | Где рисовать: `player` — инвентарь выживания и творческий (+ наследники), `all` — все контейнерные экраны (сундуки, механизмы, модовые GUI вроде аксессуаров) |
-| `debugDrawPlaceholder` | `false` | `true` — рисовать полупрозрачный квадрат вместо текстуры (отладка координат) |
-
-Координаты всегда считаются от угла инвентарного GUI
-(`screen.getGuiLeft() + xOffset`, `screen.getGuiTop() + yOffset`).
-Если анимация не помещается по правому краю экрана, она автоматически
-переносится в свободное место слева от инвентаря.
-
-
-## Как заменить PNG
-
-1. Возьмите свой sprite sheet: кадры одного размера, расположены **вертикально**
-   сверху вниз (frame 0 сверху).
-2. Положите его в `<папка инстанса>\assets\inventorygif\animation.png`
-   (или по своему пути из `texturePath`).
-3. Если размер/число кадров отличаются — поправьте `frameCount` и `frameSize`
-   в `config/inventorygif-client.toml`.
-4. Пересборка не нужна: файл подхватится автоматически при следующем открытии
-   инвентаря (конфиг — после перезапуска игры или перезагрузки конфига).
-
-Чтобы сгенерировать новый тестовый sprite sheet (8 кадров 128×128) в ресурсы проекта:
-
-```powershell
-java tools\GenerateAnimation.java
-```
-
-## Отладка
-
-Если мод собран, но анимации не видно:
-
-1. Поставьте `debugDrawPlaceholder = true` в конфиге — вместо текстуры
-   нарисуется полупрозрачный квадрат. Если квадрат виден — проблема в файле
-   текстуры; если нет — проверяйте координаты/событие.
-2. Проверьте лог клиента: строки `Loaded animation texture from ...`,
-   `Extracted default animation texture to ...` или предупреждения
-   `Failed to load animation texture ...`.
-3. Проверьте, что PNG существует по пути из `texturePath` и читается.
-
-## Технические детали (NeoForge 1.21.1)
-
-- Событие: `net.neoforged.neoforge.client.event.ContainerScreenEvent.Render.Foreground`.
-  Именно оно, а не `ScreenEvent.Render.Post`: в NeoForge 1.21.1 метод
-  `AbstractContainerScreen.render()` пропатчен и реплицирует `Screen.render()`
-  без вызова super, поэтому `ScreenEvent.Render.Pre/Post` для контейнерных
-  экранов (включая инвентарь) **не вызываются**.
-- Регистрация: `@EventBusSubscriber(modid = ..., value = Dist.CLIENT)` — шина
-  определяется автоматически (атрибут `bus` в 1.21.1 deprecated и игнорируется).
-- Конфиг: `ModConfigSpec` + `modContainer.registerConfig(ModConfig.Type.CLIENT, ...)`
-  → `config/inventorygif-client.toml`.
-- Внешняя текстура: `NativeImage.read()` + `DynamicTexture`, регистрируется в
-  `TextureManager` под id `inventorygif:external_animation`; путь резолвится
-  от `FMLPaths.GAMEDIR`.
-- Позиция GUI: `screen.getGuiLeft()` / `screen.getGuiTop()` — публичные геттеры,
-  которые NeoForge добавляет в `AbstractContainerScreen` патчем.
-- Отрисовка: `GuiGraphics.blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)`.
+Официальный JAR Cloth Config сохранён в `libs`, как зависимость прежней версии
+проекта: загрузка с Maven обрывается. Его SHA-256 сверена с опубликованной суммой.
+Cloth Config устанавливается пользователем отдельно и не включается в JAR мода.

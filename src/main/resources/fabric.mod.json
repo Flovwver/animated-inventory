@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "inventorygif",
+  "version": "${version}",
+  "name": "Inventory GIF",
+  "description": "Animated inventory overlays with a configurable animation library.",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": { "client": ["ru.example.inventorygif.InventoryGif"] },
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*",
+    "cloth-config": ">=26.3.159"
+  }
+}

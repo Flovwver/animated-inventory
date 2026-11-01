@@ -1,10 +1,6 @@
 package ru.example.inventorygif.client;
 
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ScreenEvent;
 import ru.example.inventorygif.InventoryGif;
 
 import java.util.List;
@@ -21,11 +17,8 @@ import java.util.List;
  *   (inheritance off) and saves.
  * - Right-click on an image resets the whole node to inherit from its parent.
  *
- * Uses ScreenEvent.MouseButtonPressed/Dragged/Released in the Pre phase: unlike
- * the render events, these ARE fired for container screens, and cancelling the
- * Pre event prevents the screen from handling the click.
+ * Fabric allow-input callbacks consume clicks before vanilla handles them.
  */
-@EventBusSubscriber(modid = InventoryGif.MODID, value = Dist.CLIENT)
 public final class AnimationDragHandler {
 
     /** Screen currently being dragged on; null when idle. */
@@ -95,8 +88,7 @@ public final class AnimationDragHandler {
         }
     }
 
-    @SubscribeEvent
-    public static void onMousePressed(ScreenEvent.MouseButtonPressed.Pre event) {
+    public static void onMousePressed(PointerEvent event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) {
             return;
         }
@@ -110,7 +102,7 @@ public final class AnimationDragHandler {
         // Hit-test every image of the node; each image is dragged individually.
         List<InventoryGifRenderer.PlacedImage> images = InventoryGifRenderer.placeImages(screen);
 
-        if (event.getButton() == 0 && InventoryGifConfig.DRAG_TO_MOVE.get()
+        if (event.getButton() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT && InventoryGifConfig.DRAG_TO_MOVE.get()
                 && !AnimationPositionStorage.entryFor(screen).locked) {
             for (int i = 0; i < images.size(); i++) {
                 InventoryGifRenderer.PlacedImage image = images.get(i);
@@ -150,7 +142,7 @@ public final class AnimationDragHandler {
             return;
         }
 
-        if (event.getButton() == 0) {
+        if (event.getButton() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT) {
             InventoryGifRenderer.PlacedImage hit = images.get(hitIndex);
             dragScreen = screen;
             dragIndex = hitIndex;
@@ -161,15 +153,14 @@ public final class AnimationDragHandler {
             currentX = hit.x();
             currentY = hit.y();
             event.setCanceled(true);
-        } else if (event.getButton() == 1) {
+        } else if (event.getButton() == com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_RIGHT) {
             // Right click: reset the whole node to inherit from its parent.
             AnimationPositionStorage.resetToFallback(screen);
             event.setCanceled(true);
         }
     }
 
-    @SubscribeEvent
-    public static void onMouseDragged(ScreenEvent.MouseDragged.Pre event) {
+    public static void onMouseDragged(PointerEvent event) {
         if (resizeScreen != null && event.getScreen() == resizeScreen) {
             double dx = event.getMouseX() - resizeAnchorX;
             double dy = event.getMouseY() - resizeAnchorY;
@@ -189,8 +180,7 @@ public final class AnimationDragHandler {
         event.setCanceled(true);
     }
 
-    @SubscribeEvent
-    public static void onMouseReleased(ScreenEvent.MouseButtonReleased.Pre event) {
+    public static void onMouseReleased(PointerEvent event) {
         if (resizeScreen != null) {
             if (event.getScreen() == resizeScreen && resizeIndex >= 0) {
                 AnimationPositionStorage.Entry entry = AnimationPositionStorage.entryFor(resizeScreen);
@@ -239,5 +229,20 @@ public final class AnimationDragHandler {
         }
         dragScreen = null;
         dragIndex = -1;
+    }
+    public static final class PointerEvent {
+        private final net.minecraft.client.gui.screens.Screen screen;
+        private final net.minecraft.client.input.MouseButtonEvent input;
+        private boolean canceled;
+        public PointerEvent(net.minecraft.client.gui.screens.Screen screen, net.minecraft.client.input.MouseButtonEvent input) {
+            this.screen = screen;
+            this.input = input;
+        }
+        public net.minecraft.client.gui.screens.Screen getScreen() { return screen; }
+        public double getMouseX() { return input.x(); }
+        public double getMouseY() { return input.y(); }
+        public int getButton() { return input.button(); }
+        public void setCanceled(boolean value) { canceled = value; }
+        public boolean allowed() { return !canceled; }
     }
 }

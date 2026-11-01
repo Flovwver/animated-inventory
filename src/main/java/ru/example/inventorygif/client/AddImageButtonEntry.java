@@ -2,7 +2,7 @@ package ru.example.inventorygif.client;
 
 import me.shedaniel.clothconfig2.api.AbstractConfigListEntry;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -38,10 +38,10 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
                         AnimationPositionStorage.save();
                     }
                     // Rebuild so the new slot's widgets actually exist.
-                    Screen current = Minecraft.getInstance().screen;
+                    Screen current = Minecraft.getInstance().gui.screen();
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     Screen rebuilt = InventoryGifConfigScreen.create(parentOfConfigScreen);
-                    Minecraft.getInstance().setScreen(rebuilt);
+                    Minecraft.getInstance().gui.setScreen(rebuilt);
                     InventoryGifConfigScreen.restoreState(rebuilt, state);
                 })
                 .bounds(0, 0, 200, 20)
@@ -68,12 +68,12 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int index, int y, int x, int entryWidth, int entryHeight,
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int index, int y, int x, int entryWidth, int entryHeight,
                         int mouseX, int mouseY, boolean isHovered, float delta) {
         button.setX(x + entryWidth - 210);
         button.setY(y);
         button.setWidth(200);
-        button.render(guiGraphics, mouseX, mouseY, delta);
+        button.extractRenderState(guiGraphics, mouseX, mouseY, delta);
     }
 
     @Override

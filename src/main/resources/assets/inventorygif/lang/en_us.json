@@ -62,5 +62,7 @@
   "inventorygif.config.animations.locked.tooltip": "Blocks dragging and right-click reset for this node only. Inheriting screens are unaffected.",
   "inventorygif.config.animations.delete_node": "Delete settings for this node",
   "key.categories.inventorygif": "Inventory GIF",
-  "key.inventorygif.toggle_lock": "Toggle Lock (hold Ctrl)"
+  "key.inventorygif.toggle_lock": "Toggle Lock (hold Ctrl)",
+  "key.inventorygif.settings": "Open Inventory GIF settings (Ctrl)",
+  "key.category.inventorygif.general": "Inventory GIF"
 }

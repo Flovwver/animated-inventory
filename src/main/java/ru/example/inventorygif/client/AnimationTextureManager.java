@@ -4,7 +4,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import ru.example.inventorygif.InventoryGif;
 
 import javax.imageio.ImageIO;
@@ -41,8 +41,8 @@ import org.w3c.dom.NodeList;
 public final class AnimationTextureManager {
 
     /** Built-in fallback texture inside the mod jar. */
-    private static final ResourceLocation FALLBACK_TEXTURE =
-            ResourceLocation.fromNamespaceAndPath(InventoryGif.MODID, "textures/gui/animation.png");
+    private static final Identifier FALLBACK_TEXTURE =
+            Identifier.fromNamespaceAndPath(InventoryGif.MODID, "textures/gui/animation.png");
 
     /** How often texture files are re-checked for changes, in milliseconds. */
     private static final long CHECK_INTERVAL_MS = 500L;
@@ -59,7 +59,7 @@ public final class AnimationTextureManager {
 
     /** One loaded (or failed-over) sprite sheet. */
     public static final class Loaded {
-        ResourceLocation texture = FALLBACK_TEXTURE;
+        Identifier texture = FALLBACK_TEXTURE;
         int width = 128;
         int height = 1024;
         long mtime = Long.MIN_VALUE;
@@ -109,7 +109,7 @@ public final class AnimationTextureManager {
     private static Loaded load(AnimationLibrary.AnimationMeta meta) {
         Loaded loaded = new Loaded();
         loaded.meta = meta;
-        loaded.texture = ResourceLocation.fromNamespaceAndPath(
+        loaded.texture = Identifier.fromNamespaceAndPath(
                 InventoryGif.MODID, "anim_" + POOL.size());
         reload(loaded);
         return loaded;
@@ -139,7 +139,7 @@ public final class AnimationTextureManager {
             NativeImage image = NativeImage.read(in);
             TextureManager tm = Minecraft.getInstance().getTextureManager();
             tm.release(loaded.texture);
-            tm.register(loaded.texture, new DynamicTexture(image));
+            tm.register(loaded.texture, new DynamicTexture(() -> "Inventory GIF", image));
             loaded.width = image.getWidth();
             loaded.height = image.getHeight();
             loaded.frameDelays = null;
@@ -255,7 +255,7 @@ public final class AnimationTextureManager {
     private static void applyDecodedGif(Loaded loaded, DecodedGif decoded) {
         TextureManager tm = Minecraft.getInstance().getTextureManager();
         tm.release(loaded.texture);
-        tm.register(loaded.texture, new DynamicTexture(decoded.sheet()));
+        tm.register(loaded.texture, new DynamicTexture(() -> "Inventory GIF", decoded.sheet()));
         loaded.width = decoded.frameWidth();
         loaded.height = decoded.frameHeight() * decoded.delays().length;
         loaded.frameDelays = decoded.delays();
@@ -364,7 +364,7 @@ public final class AnimationTextureManager {
                 int r = (argb >>> 16) & 0xFF;
                 int gg = (argb >>> 8) & 0xFF;
                 int b = argb & 0xFF;
-                sheet.setPixelRGBA(x, oy + y, (a << 24) | (b << 16) | (gg << 8) | r);
+                sheet.setPixel(x, oy + y, (a << 24) | (r << 16) | (gg << 8) | b);
             }
         }
     }
@@ -379,7 +379,7 @@ public final class AnimationTextureManager {
         }
     }
 
-    public static ResourceLocation textureOf(Loaded loaded) {
+    public static Identifier textureOf(Loaded loaded) {
         return loaded.texture;
     }
 

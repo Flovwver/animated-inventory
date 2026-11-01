@@ -1,55 +1,16 @@
 package ru.example.inventorygif.client;
 
 import com.mojang.blaze3d.platform.Window;
-import net.minecraft.Util;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Util;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import java.util.ArrayList;
 import java.util.List;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ContainerScreenEvent;
-import ru.example.inventorygif.InventoryGif;
 
-/**
- * Renders the looping animation on top of container screens.
- *
- * Which screens are covered is controlled by the {@code screenMode} config option:
- * {@code "player"} (default) draws on the survival {@link InventoryScreen} and the
- * creative {@link CreativeModeInventoryScreen} (plus modded subclasses of them);
- * {@code "all"} draws on every {@link AbstractContainerScreen}, including chests,
- * machines and modded GUIs (accessories etc.).
- *
- * Why {@link ContainerScreenEvent.Render.Foreground} and not ScreenEvent.Render.Post:
- * in NeoForge 1.21.1 the render() method of AbstractContainerScreen is patched to
- * replicate Screen.render() in place (no super call), so ScreenEvent.Render.Pre/Post
- * are NOT fired for container screens. NeoForge instead fires
- * ContainerScreenEvent.Render.Background / Render.Foreground from inside
- * AbstractContainerScreen.render(). Foreground fires after all screen content but
- * before tooltips and the dragged item stack, which is exactly where an overlay
- * next to the inventory should be drawn. Note: at that point the pose matrix is
- * still translated by (leftPos, topPos), so screen-space coordinates must be
- * converted back before translating (see the render method below).
- *
- * The event is fired on the game event bus (NeoForge#EVENT_BUS), client side only.
- * This class is registered automatically by the @EventBusSubscriber annotation;
- * the bus is determined automatically (the deprecated bus= attribute is ignored).
- *
- * Position resolution (see {@link #resolveOffsets}): the position stored in the
- * per-screen entry wins; new menus inherit the survival inventory position on
- * first open. Dragging is handled by {@link AnimationDragHandler}; positions and
- * the per-screen animation binding live in {@link AnimationPositionStorage}.
- *
- * Which animation is drawn is resolved by {@link AnimationMapping} from the
- * per-screen binding; sprite sheets come from {@link AnimationLibrary}
- * ({@code <game>/inventorygif/animations/}) and are registered by
- * {@link AnimationTextureManager}.
- */
-@EventBusSubscriber(modid = InventoryGif.MODID, value = Dist.CLIENT)
+/** Draws animated overlays in screen coordinates. */
 public final class InventoryGifRenderer {
 
     static final int HANDLE_SIZE = 3;
@@ -78,22 +39,18 @@ public final class InventoryGifRenderer {
     /** Clamps a position so the image stays fully inside the window. */
     static int[] clampToWindow(AnimationMapping.AnimationSpec spec, int x, int y,
                                AbstractContainerScreen<?> screen) {
-        Window window = screen.getMinecraft().getWindow();
+        Window window = net.minecraft.client.Minecraft.getInstance().getWindow();
         int cx = Mth.clamp(x, 0, Math.max(0, window.getGuiScaledWidth() - scaledWidth(spec)));
         int cy = Mth.clamp(y, 0, Math.max(0, window.getGuiScaledHeight() - scaledHeight(spec)));
         return new int[]{cx, cy};
     }
 
-    @SubscribeEvent
-    public static void onRenderInventoryForeground(ContainerScreenEvent.Render.Foreground event) {
-        AbstractContainerScreen<?> screen = event.getContainerScreen();
+    public static void render(AbstractContainerScreen<?> screen, GuiGraphicsExtractor guiGraphics) {
 
         // screenMode from config: "player" = survival/creative inventory, "all" = any container screen.
         if (!isAnimatedScreen(screen)) {
             return;
         }
-
-        GuiGraphics guiGraphics = event.getGuiGraphics();
 
         // Drop a stale drag if its screen was closed without a release event.
         AnimationDragHandler.ensureScreen(screen);
@@ -115,7 +72,7 @@ public final class InventoryGifRenderer {
         return image.y() + scaledHeight(image.spec()) - HANDLE_SIZE;
     }
 
-    private static void drawResizeHandle(GuiGraphics guiGraphics, AbstractContainerScreen<?> screen,
+    private static void drawResizeHandle(GuiGraphicsExtractor guiGraphics, AbstractContainerScreen<?> screen,
                                          PlacedImage image) {
         if (!InventoryGifConfig.DRAG_TO_MOVE.get()) {
             return;
@@ -123,11 +80,11 @@ public final class InventoryGifRenderer {
         int handleX = handleX(image);
         int handleY = handleY(image);
 
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().translate(-screen.getGuiLeft(), -screen.getGuiTop(), 0);
+        guiGraphics.pose().pushMatrix();
+
         guiGraphics.fill(handleX, handleY, handleX + HANDLE_SIZE, handleY + HANDLE_SIZE, 0xC0FFFFFF);
-        guiGraphics.renderOutline(handleX, handleY, HANDLE_SIZE, HANDLE_SIZE, 0xFF000000);
-        guiGraphics.pose().popPose();
+        guiGraphics.outline(handleX, handleY, HANDLE_SIZE, HANDLE_SIZE, 0xFF000000);
+        guiGraphics.pose().popMatrix();
     }
 
     /** One image laid out on the screen, ready to draw. */
@@ -147,7 +104,7 @@ public final class InventoryGifRenderer {
      */
     static List<PlacedImage> placeImages(AbstractContainerScreen<?> screen) {
         List<PlacedImage> result = new ArrayList<>();
-        Window window = screen.getMinecraft().getWindow();
+        Window window = net.minecraft.client.Minecraft.getInstance().getWindow();
 
         List<AnimationMapping.ImageSpec> specs = AnimationMapping.resolveAll(screen);
         int[] drag = AnimationDragHandler.activeDragImage(screen);
@@ -170,25 +127,22 @@ public final class InventoryGifRenderer {
     }
 
     /** Draws one animation image (debug placeholder or sprite frame) at its position. */
-    private static void drawImage(GuiGraphics guiGraphics, AbstractContainerScreen<?> screen, PlacedImage image) {
+    private static void drawImage(GuiGraphicsExtractor guiGraphics, AbstractContainerScreen<?> screen, PlacedImage image) {
         AnimationMapping.AnimationSpec spec = image.spec();
         float scale = spec.scale();
         int frameWidth = spec.frameWidth();
         int frameHeight = spec.frameHeight();
         boolean debugPlaceholder = InventoryGifConfig.DEBUG_DRAW_PLACEHOLDER.get();
 
-        guiGraphics.pose().pushPose();
-        // ContainerScreenEvent.Render.Foreground fires while the pose is still
-        // translated by (leftPos, topPos), so convert the screen-space origin
-        // back into that coordinate space, otherwise the sprite would be drawn
-        // at twice the GUI offset (visible position != hit-test position).
-        guiGraphics.pose().translate(image.x() - screen.getGuiLeft(), image.y() - screen.getGuiTop(), 0);
-        guiGraphics.pose().scale(scale, scale, 1.0f);
+        guiGraphics.pose().pushMatrix();
+        // Fabric extraction callbacks use screen coordinates.
+        guiGraphics.pose().translate(image.x(), image.y());
+        guiGraphics.pose().scale(scale, scale);
 
         if (debugPlaceholder) {
             // ARGB translucent green rectangle.
             guiGraphics.fill(0, 0, frameWidth, frameHeight, 0x8000FF00);
-            guiGraphics.pose().popPose();
+            guiGraphics.pose().popMatrix();
             return;
         }
 
@@ -197,12 +151,12 @@ public final class InventoryGifRenderer {
             // vertical slice of the decoded sheet (v = index * frameHeight).
             int frameIndex = AnimationTextureManager.currentGifFrame(image.loaded(), Util.getMillis());
             float v = frameIndex * AnimationTextureManager.gifFrameHeight(image.loaded());
-            guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
+            guiGraphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
                     AnimationTextureManager.gifFrameWidth(image.loaded()),
                     AnimationTextureManager.gifFrameHeight(image.loaded()),
                     AnimationTextureManager.widthOf(image.loaded()),
                     AnimationTextureManager.heightOf(image.loaded()));
-            guiGraphics.pose().popPose();
+            guiGraphics.pose().popMatrix();
             return;
         }
 
@@ -213,10 +167,10 @@ public final class InventoryGifRenderer {
         float v = frame * frameHeight; // frames are stacked vertically in the sheet
 
         // blit(texture, x, y, u, v, width, height, textureWidth, textureHeight)
-        guiGraphics.blit(AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
+        guiGraphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, AnimationTextureManager.textureOf(image.loaded()), 0, 0, 0f, v,
                 frameWidth, frameHeight,
                 AnimationTextureManager.widthOf(image.loaded()), AnimationTextureManager.heightOf(image.loaded()));
 
-        guiGraphics.pose().popPose();
+        guiGraphics.pose().popMatrix();
     }
 }

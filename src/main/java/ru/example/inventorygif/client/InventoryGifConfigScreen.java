@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * In-game settings screen, opened via the "Config" button in the NeoForge mod list.
+ * In-game settings screen, opened with Ctrl+O from an inventory screen.
  *
  * Built with Cloth Config API. Three categories:
  * - General: global rendering options (bound to {@link InventoryGifConfig}).
@@ -294,10 +294,10 @@ public final class InventoryGifConfigScreen {
                             AnimationPositionStorage.save();
                             // Слот исчез — список сдвинулся, пересобираем экран,
                             // чтобы виджеты снова совпадали с e.images по индексам.
-                            Screen currentScreen = Minecraft.getInstance().screen;
+                            Screen currentScreen = Minecraft.getInstance().gui.screen();
                             ScreenState state = captureState(currentScreen);
                             Screen rebuilt = InventoryGifConfigScreen.create(parent);
-                            Minecraft.getInstance().setScreen(rebuilt);
+                            Minecraft.getInstance().gui.setScreen(rebuilt);
                             restoreState(rebuilt, state);
                         } else {
                             e.images.get(idx).animation = value;
