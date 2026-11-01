@@ -3,7 +3,7 @@ package ru.example.inventorygif.client;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import net.fabricmc.loader.api.FabricLoader;
+import net.neoforged.fml.loading.FMLPaths;
 import ru.example.inventorygif.InventoryGif;
 
 import org.jspecify.annotations.Nullable;
@@ -51,7 +51,7 @@ public final class AnimationLibrary {
     public static final String DEFAULT_NAME = "animation";
 
     private static final Gson GSON = new Gson();
-    private static final Path DIR = FabricLoader.getInstance().getGameDir().resolve("inventorygif").resolve("animations");
+    private static final Path DIR = FMLPaths.GAMEDIR.get().resolve("inventorygif").resolve("animations");
 
     private static final String EXAMPLE_PNG_CLASSPATH = "/assets/inventorygif/textures/gui/animation.png";
     private static final String EXAMPLE_JSON_CLASSPATH = "/assets/inventorygif/example_animation.json";
@@ -72,7 +72,7 @@ public final class AnimationLibrary {
     public static void openFolder() {
         try {
             Files.createDirectories(DIR);
-            com.mojang.blaze3d.Blaze3D.openPath(DIR.toAbsolutePath());
+            net.minecraft.util.Util.getPlatform().openPath(DIR.toAbsolutePath());
         } catch (IOException | RuntimeException e) {
             InventoryGif.LOGGER.warn("Could not open animations folder {}", DIR, e);
         }

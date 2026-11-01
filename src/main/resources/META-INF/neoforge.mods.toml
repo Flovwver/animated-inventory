@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+[[mods]]
+modId="inventorygif"
+version="${version}"
+displayName="Inventory GIF"
+description="Animated inventory overlays with a configurable animation library."
+[[dependencies.inventorygif]]
+modId="neoforge"
+type="required"
+versionRange="[26.1.2.125,)"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.inventorygif]]
+modId="minecraft"
+type="required"
+versionRange="[26.1.2]"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.inventorygif]]
+modId="cloth_config"
+type="required"
+versionRange="[26.1.154,)"
+ordering="AFTER"
+side="CLIENT"

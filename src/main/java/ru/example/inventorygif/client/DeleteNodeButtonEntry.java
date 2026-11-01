@@ -21,13 +21,13 @@ public final class DeleteNodeButtonEntry extends AbstractConfigListEntry<Void> {
     public DeleteNodeButtonEntry(String key, Map<String, List<String>> children, Screen parent) {
         super(Component.translatable("inventorygif.config.animations.delete_node"), false);
         this.button = Button.builder(Component.translatable("inventorygif.config.animations.delete_node"), b -> {
-                    Screen current = Minecraft.getInstance().gui.screen();
-                    InventoryGifConfigScreen.flushDraft(current);
+                    Screen current = Minecraft.getInstance().screen;
+                    if (!InventoryGifConfigScreen.flushDraft(current)) return;
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     AnimationPositionStorage.removeSubtree(key, children);
                     Screen rebuilt = InventoryGifConfigScreen.create(parent);
                     InventoryGifConfigScreen.restoreState(rebuilt, state);
-                    Minecraft.getInstance().gui.setScreen(rebuilt);
+                    Minecraft.getInstance().setScreen(rebuilt);
                 })
                 .bounds(0, 0, 200, 20)
                 .build();
