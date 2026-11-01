@@ -9,7 +9,10 @@ repositories { mavenCentral(); maven { url = 'https://maven.shedaniel.me/' } }
 java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 neoForge {
     version = neo_version
-    runs { client { client() } }
+    runs { client {
+        client()
+        gameDirectory = file("run-${providers.gradleProperty('neo_version').get()}")
+    } }
     mods { inventorygif { sourceSet sourceSets.main } }
 }
 dependencies {

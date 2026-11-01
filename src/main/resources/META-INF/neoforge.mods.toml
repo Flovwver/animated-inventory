@@ -9,13 +9,13 @@ description="Animated inventory overlays with a configurable animation library."
 [[dependencies.inventorygif]]
 modId="neoforge"
 type="required"
-versionRange="[26.1.2.125,)"
+versionRange="[26.1.0.19-beta,26.2)"
 ordering="NONE"
 side="CLIENT"
 [[dependencies.inventorygif]]
 modId="minecraft"
 type="required"
-versionRange="[26.1.2]"
+versionRange="[26.1,26.2)"
 ordering="NONE"
 side="CLIENT"
 [[dependencies.inventorygif]]

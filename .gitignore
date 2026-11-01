@@ -12,6 +12,7 @@ out/
 # Minecraft run directories
 run/
 run-data/
+run-*/
 
 # Generated resources
 src/generated/
