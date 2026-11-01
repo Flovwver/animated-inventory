@@ -9,9 +9,9 @@
   "entrypoints": { "client": ["ru.example.inventorygif.InventoryGif"] },
   "depends": {
     "fabricloader": ">=0.20.1",
-    "minecraft": "~26.3",
+    "minecraft": "~26.1.2",
     "java": ">=25",
     "fabric-api": "*",
-    "cloth-config": ">=26.3.159"
+    "cloth-config": ">=26.1.154"
   }
 }

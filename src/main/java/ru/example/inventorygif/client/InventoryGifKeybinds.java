@@ -16,15 +16,15 @@ public final class InventoryGifKeybinds {
     public static void register() {
         var category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("inventorygif", "general"));
         TOGGLE_LOCK = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.inventorygif.toggle_lock",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_L, category));
+                InputConstants.Type.KEYSYM, InputConstants.KEY_L, category));
         SETTINGS = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.inventorygif.settings",
-                InputConstants.Type.KEYBOARD, InputConstants.KEY_O, category));
+                InputConstants.Type.KEYSYM, InputConstants.KEY_O, category));
     }
     public static boolean allowKeyPress(Screen screen, KeyEvent input) {
         if (!(screen instanceof AbstractContainerScreen<?> container)
                 || !InventoryGifRenderer.isAnimatedScreen(container)) return true;
         if (SETTINGS.matches(input) && input.hasControlDown()) {
-            Minecraft.getInstance().gui.setScreen(InventoryGifConfigScreen.create(screen));
+            Minecraft.getInstance().setScreen(InventoryGifConfigScreen.create(screen));
             return false;
         }
         if (!TOGGLE_LOCK.matches(input) || !input.hasControlDown()) return true;

@@ -72,7 +72,7 @@ public final class AnimationPickerScreen extends Screen {
     private void pick(String name) {
         onPick.accept(name);
 
-        if (minecraft.gui.screen() == this) {
+        if (minecraft.screen == this) {
             onClose();
         }
     }
@@ -89,7 +89,7 @@ public final class AnimationPickerScreen extends Screen {
         Screen destination = parent instanceof me.shedaniel.clothconfig2.gui.ClothConfigScreen
                 ? InventoryGifConfigScreen.rebuild(parent) : parent;
         InventoryGifConfigScreen.restoreState(destination, parentState);
-        minecraft.gui.setScreen(destination);
+        minecraft.setScreen(destination);
     }
 
     @Override

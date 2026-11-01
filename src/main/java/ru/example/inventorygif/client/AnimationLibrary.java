@@ -72,7 +72,7 @@ public final class AnimationLibrary {
     public static void openFolder() {
         try {
             Files.createDirectories(DIR);
-            com.mojang.blaze3d.Blaze3D.openPath(DIR.toAbsolutePath());
+            net.minecraft.util.Util.getPlatform().openPath(DIR.toAbsolutePath());
         } catch (IOException | RuntimeException e) {
             InventoryGif.LOGGER.warn("Could not open animations folder {}", DIR, e);
         }
