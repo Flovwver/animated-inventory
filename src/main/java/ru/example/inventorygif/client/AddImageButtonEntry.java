@@ -31,18 +31,16 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
         super(Component.translatable("inventorygif.config.animations.add_image"), false);
 
         this.button = Button.builder(Component.translatable("inventorygif.config.animations.add_image"), b -> {
-                    materialize(node, effective);
-                    if (node.images.size() < MAX_IMAGES) {
-                        node.images.add(new AnimationPositionStorage.Image(
-                                AnimationLibrary.DEFAULT_NAME, 0, 0, 0.0));
-                        AnimationPositionStorage.save();
-                    }
-                    // Rebuild so the new slot's widgets actually exist.
                     Screen current = Minecraft.getInstance().gui.screen();
-                    InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
-                    Screen rebuilt = InventoryGifConfigScreen.create(parentOfConfigScreen);
-                    InventoryGifConfigScreen.restoreState(rebuilt, state);
-                    Minecraft.getInstance().gui.setScreen(rebuilt);
+                    InventoryGifConfigScreen.flushDraft(current);
+                    Minecraft.getInstance().gui.setScreen(new AnimationPickerScreen(current, "", picked -> {
+                        if (picked.isEmpty()) return;
+                        materialize(node, effective);
+                        if (node.images.size() < MAX_IMAGES) {
+                            node.images.add(new AnimationPositionStorage.Image(picked, 0, 0, 0.0));
+                            AnimationPositionStorage.save();
+                        }
+                    }));
                 })
                 .bounds(0, 0, 200, 20)
                 .build();
@@ -88,6 +86,6 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
 
     @Override
     public boolean isEdited() {
-        return AnimationPositionStorage.hasPendingEdits();
+        return InventoryGifConfigScreen.hasPendingEdits();
     }
 }

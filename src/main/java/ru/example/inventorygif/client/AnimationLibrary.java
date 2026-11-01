@@ -63,6 +63,7 @@ public final class AnimationLibrary {
     private static final Map<java.nio.file.Path, GifMetaCache> GIF_META_CACHE = new HashMap<>();
     private static long nextScanMs;
     private static boolean exampleExtracted;
+    private static Map<String, AnimationMeta> draftMetas;
 
     private AnimationLibrary() {
     }
@@ -84,7 +85,10 @@ public final class AnimationLibrary {
             nextScanMs = now + RESCAN_INTERVAL_MS;
             scan();
         }
-        return animations;
+        if (draftMetas == null || draftMetas.isEmpty()) return animations;
+        Map<String, AnimationMeta> result = new LinkedHashMap<>(animations);
+        result.putAll(draftMetas);
+        return result;
     }
 
     /** Metadata of the given animation, or null if it does not exist on disk. */
@@ -98,11 +102,38 @@ public final class AnimationLibrary {
         return animations().containsKey(name);
     }
 
+    public static void beginEdit() {
+        if (draftMetas == null) draftMetas = new LinkedHashMap<>();
+    }
+
+    public static boolean hasPendingEdits() {
+        return draftMetas != null && !draftMetas.isEmpty();
+    }
+
+    public static void cancelEdit() {
+        draftMetas = null;
+    }
+
+    public static void commitEdit() {
+        if (draftMetas == null) return;
+        for (AnimationMeta meta : draftMetas.values()) {
+            writeMetaFile(meta.png().resolveSibling(meta.name() + ".json"),
+                    meta.frameCount(), meta.frameWidth(), meta.frameHeight(), meta.frameDurationMs());
+        }
+        draftMetas = null;
+        forceRescan();
+    }
+
     /** Writes the metadata JSON next to the animation's PNG and rescans. */
     public static void writeMeta(String name, int frameCount, int frameWidth,
                                  int frameHeight, long frameDurationMs) {
         AnimationMeta meta = animations().get(name);
         if (meta == null) {
+            return;
+        }
+        if (draftMetas != null) {
+            draftMetas.put(name, new AnimationMeta(name, meta.png(), frameCount, frameWidth,
+                    frameHeight, frameDurationMs, meta.gif()));
             return;
         }
         writeMetaFile(meta.png().resolveSibling(name + ".json"),

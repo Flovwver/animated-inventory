@@ -86,6 +86,11 @@ public final class AnimationTextureManager {
     public static Loaded get(AnimationLibrary.AnimationMeta meta) {
         Loaded loaded = POOL.computeIfAbsent(meta.name(), name -> load(meta));
 
+        if (!meta.equals(loaded.meta)) {
+            loaded.meta = meta;
+            reload(loaded);
+        }
+
         long now = System.currentTimeMillis();
         if (now >= nextCheckMs) {
             nextCheckMs = now + CHECK_INTERVAL_MS;

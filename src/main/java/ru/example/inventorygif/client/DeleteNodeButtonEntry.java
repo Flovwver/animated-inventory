@@ -22,6 +22,7 @@ public final class DeleteNodeButtonEntry extends AbstractConfigListEntry<Void> {
         super(Component.translatable("inventorygif.config.animations.delete_node"), false);
         this.button = Button.builder(Component.translatable("inventorygif.config.animations.delete_node"), b -> {
                     Screen current = Minecraft.getInstance().gui.screen();
+                    InventoryGifConfigScreen.flushDraft(current);
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     AnimationPositionStorage.removeSubtree(key, children);
                     Screen rebuilt = InventoryGifConfigScreen.create(parent);

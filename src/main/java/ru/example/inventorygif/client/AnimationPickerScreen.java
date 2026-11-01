@@ -51,15 +51,16 @@ public final class AnimationPickerScreen extends Screen {
         addRenderableWidget(searchBox);
         setInitialFocus(searchBox);
 
-        list = new AnimationSelectionList(minecraft, width, height - 90, 58, 22);
+        list = new AnimationSelectionList(minecraft, width, height - 90, 58, 44);
         list.updateFilter("");
         addRenderableWidget(list);
 
-        addRenderableWidget(Button.builder(
+        var clearButton = addRenderableWidget(Button.builder(
                         Component.translatable("inventorygif.config.animations.picker.clear"),
                         b -> pick(""))
                 .bounds(width / 2 - 205, height - 28, 130, 20)
                 .build());
+        clearButton.active = !currentValue.isEmpty();
         addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), b -> onClose())
                 .bounds(width / 2 - 65, height - 28, 130, 20)
                 .build());
@@ -85,8 +86,10 @@ public final class AnimationPickerScreen extends Screen {
 
     @Override
     public void onClose() {
-        InventoryGifConfigScreen.restoreState(parent, parentState);
-        minecraft.gui.setScreen(parent);
+        Screen destination = parent instanceof me.shedaniel.clothconfig2.gui.ClothConfigScreen
+                ? InventoryGifConfigScreen.rebuild(parent) : parent;
+        InventoryGifConfigScreen.restoreState(destination, parentState);
+        minecraft.gui.setScreen(destination);
     }
 
     @Override
@@ -102,9 +105,9 @@ public final class AnimationPickerScreen extends Screen {
 
         void updateFilter(String query) {
             clearEntries();
-            String q = query.toLowerCase();
+            String q = query.toLowerCase(java.util.Locale.ROOT);
             for (String name : allNames) {
-                if (q.isEmpty() || name.toLowerCase().contains(q)) {
+                if (q.isEmpty() || name.toLowerCase(java.util.Locale.ROOT).contains(q)) {
                     addEntry(new Entry(name));
                 }
             }
@@ -137,14 +140,17 @@ public final class AnimationPickerScreen extends Screen {
                 int top = getContentY(), left = getContentX(), width = getContentWidth(), height = getContentHeight();
                 boolean selected = name.equals(currentValue);
                 int color = selected ? 0xFFFFFF55 : 0xFFFFFFFF;
-                guiGraphics.text(font, name, left + 4, top + height / 2 - 4, color);
+                if (hovered || selected) {
+                    AnimationPreview.draw(guiGraphics, name, left + 2, top + 2, 36);
+                }
+                String shownName = font.plainSubstrByWidth(name, Math.max(20, width - 48));
+                guiGraphics.text(font, shownName, left + 44, top + 6, color);
 
                 AnimationLibrary.AnimationMeta meta = AnimationLibrary.get(name);
                 if (meta != null) {
                     String info = meta.frameCount() + " fr, " + meta.frameWidth() + "x" + meta.frameHeight();
-                    int infoWidth = font.width(info);
-                    guiGraphics.text(font, info, left + width - infoWidth - 4,
-                            top + height / 2 - 4, 0xFFAAAAAA);
+                    guiGraphics.text(font, info, left + 44,
+                            top + 22, 0xFFAAAAAA);
                 }
             }
 

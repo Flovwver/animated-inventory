@@ -32,6 +32,8 @@ public final class InventoryGifConfigScreen {
     record ScreenState(int categoryIndex, double scroll, Map<List<Integer>, Boolean> expanded) {
     }
 
+    private static Screen configParent;
+
     private static final String CREATIVE_KEY =
             "net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen";
 
@@ -40,12 +42,16 @@ public final class InventoryGifConfigScreen {
 
     /** Creates the config screen; {@code parent} is the screen to return to on close. */
     public static Screen create(Screen parent) {
+        configParent = parent;
         AnimationPositionStorage.beginEdit();
+        InventoryGifConfig.SPEC.beginEdit();
+        AnimationLibrary.beginEdit();
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(new SettingsExitScreen(parent))
                 .setTitle(Component.translatable("inventorygif.config.title"))
                 .setSavingRunnable(() -> {
-                    InventoryGifConfig.SPEC.save();
+                    InventoryGifConfig.SPEC.commitEdit();
+                    AnimationLibrary.commitEdit();
                     AnimationPositionStorage.commitEdit();
                 });
 
@@ -140,6 +146,24 @@ public final class InventoryGifConfigScreen {
         addAnimationEditorCategory(builder, entries);
 
         return builder.build();
+    }
+
+    static boolean hasPendingEdits() {
+        return AnimationPositionStorage.hasPendingEdits() || InventoryGifConfig.SPEC.hasPendingEdits()
+                || AnimationLibrary.hasPendingEdits();
+    }
+
+    static void flushDraft(Screen screen) {
+        if (screen instanceof ClothConfigScreen cloth) {
+            cloth.getCategorizedEntries().values().forEach(entries -> entries.forEach(entry -> entry.save()));
+        }
+    }
+
+    static Screen rebuild(Screen current) {
+        ScreenState state = captureState(current);
+        Screen rebuilt = create(configParent);
+        restoreState(rebuilt, state);
+        return rebuilt;
     }
 
     static ScreenState captureState(Screen screen) {
@@ -299,17 +323,23 @@ public final class InventoryGifConfigScreen {
         List<AnimationPositionStorage.Image> display = e.inherit ? effective.images : e.images;
         List<AbstractConfigListEntry> list = new ArrayList<>();
 
+        list.add(entries.startTextDescription(Component.translatable(
+                e.inherit ? "inventorygif.config.animations.source.inherited" : "inventorygif.config.animations.source.own",
+                e.parentKey == null ? "" : displayLabel(e.parentKey, all.get(e.parentKey)))).build());
+
         if (e.parentKey != null && !e.parentKey.isEmpty()) {
-            list.add(entries.startBooleanToggle(
-                            Component.translatable("inventorygif.config.animations.inherit"), e.inherit)
-                    .setDefaultValue(true)
-                    .setTooltip(Component.translatable("inventorygif.config.animations.inherit.tooltip",
-                            displayLabel(e.parentKey, all.get(e.parentKey))))
-                    .setSaveConsumer(v -> {
-                        e.inherit = v;
-                        AnimationPositionStorage.save();
-                    })
-                    .build());
+            list.add(new SettingsActionEntry(Component.translatable(e.inherit
+                    ? "inventorygif.config.animations.inherit.on" : "inventorygif.config.animations.inherit.off"), () -> {
+                Screen currentScreen = Minecraft.getInstance().gui.screen();
+                flushDraft(currentScreen);
+                if (e.inherit) {
+                    materializeImages(e, AnimationPositionStorage.resolveEffectiveByKey(key));
+                } else {
+                    e.inherit = true;
+                }
+                AnimationPositionStorage.save();
+                Minecraft.getInstance().gui.setScreen(rebuild(currentScreen));
+            }));
         }
 
         list.add(entries.startBooleanToggle(
@@ -317,6 +347,7 @@ public final class InventoryGifConfigScreen {
                 .setDefaultValue(false)
                 .setTooltip(Component.translatable("inventorygif.config.animations.locked.tooltip"))
                 .setSaveConsumer(v -> {
+                    if (e.locked == v) return;
                     e.locked = v;
                     AnimationPositionStorage.save();
                 })
@@ -338,7 +369,10 @@ public final class InventoryGifConfigScreen {
             AnimationPositionStorage.Image img = display.get(slot);
             String current = img.animation != null ? img.animation : "";
 
-            imagesSub.add(new AnimationFieldEntry(
+            var card = entries.startSubCategory(Component.translatable(
+                    "inventorygif.config.animations.card", slot + 1, current));
+            card.setExpanded(true);
+            card.add(new AnimationFieldEntry(
                     Component.translatable("inventorygif.config.animations.image", slot + 1),
                     current,
                     v -> {
@@ -352,20 +386,13 @@ public final class InventoryGifConfigScreen {
                                 e.images.remove(idx);
                             }
                             AnimationPositionStorage.save();
-                            // Слот исчез — список сдвинулся, пересобираем экран,
-                            // чтобы виджеты снова совпадали с e.images по индексам.
-                            Screen currentScreen = Minecraft.getInstance().gui.screen();
-                            ScreenState state = captureState(currentScreen);
-                            Screen rebuilt = InventoryGifConfigScreen.create(parent);
-                            restoreState(rebuilt, state);
-                            Minecraft.getInstance().gui.setScreen(rebuilt);
                         } else {
                             e.images.get(idx).animation = value;
                             AnimationPositionStorage.save();
                         }
                     }));
 
-            imagesSub.add(entries.startIntField(
+            card.add(entries.startIntField(
                             Component.translatable("inventorygif.config.animations.image.x"), img.x)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
@@ -378,7 +405,7 @@ public final class InventoryGifConfigScreen {
                     })
                     .build());
 
-            imagesSub.add(entries.startIntField(
+            card.add(entries.startIntField(
                             Component.translatable("inventorygif.config.animations.image.y"), img.y)
                     .setMin(-10000).setMax(10000)
                     .setSaveConsumer(v -> {
@@ -391,7 +418,7 @@ public final class InventoryGifConfigScreen {
                     })
                     .build());
 
-            imagesSub.add(entries.startDoubleField(
+            card.add(entries.startDoubleField(
                             Component.translatable("inventorygif.config.animations.image.scale"),
                             img.scale > 0 ? img.scale : 0.0)
                     .setMin(0.0).setMax(10.0)
@@ -405,6 +432,17 @@ public final class InventoryGifConfigScreen {
                         AnimationPositionStorage.save();
                     })
                     .build());
+            card.add(new SettingsActionEntry(Component.translatable("inventorygif.config.animations.remove"), () -> {
+                Screen currentScreen = Minecraft.getInstance().gui.screen();
+                flushDraft(currentScreen);
+                materializeImages(e, effective);
+                if (idx < e.images.size()) {
+                    e.images.remove(idx);
+                    AnimationPositionStorage.save();
+                }
+                Minecraft.getInstance().gui.setScreen(rebuild(currentScreen));
+            }));
+            imagesSub.add(card.build());
         }
 
         imagesSub.add(new AddImageButtonEntry(e, effective, parent));
@@ -441,6 +479,14 @@ public final class InventoryGifConfigScreen {
 
     /** Human-readable node title: label, then key-specific fallbacks. */
     private static String displayLabel(String key, AnimationPositionStorage.Entry entry) {
+        if (key.equals(AnimationPositionStorage.SURVIVAL_KEY)) return Component.translatable("inventorygif.config.survival").getString();
+        if (key.equals(CREATIVE_KEY)) return Component.translatable("inventorygif.config.creative").getString();
+        if (key.startsWith("@menu:net.minecraft.")) {
+            String menu = AnimationPositionStorage.shortName(key.substring("@menu:".length()));
+            String translation = "inventorygif.menu." + menu;
+            Component label = Component.translatable(translation);
+            if (!label.getString().equals(translation)) return label.getString();
+        }
         if (entry != null && entry.label != null && !entry.label.isEmpty()) {
             return entry.label;
         }
@@ -556,6 +602,8 @@ public final class InventoryGifConfigScreen {
         @Override
         public void tick() {
             AnimationPositionStorage.cancelEdit();
+            InventoryGifConfig.SPEC.cancelEdit();
+            AnimationLibrary.cancelEdit();
             minecraft.gui.setScreen(destination);
         }
     }

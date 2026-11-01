@@ -42,6 +42,7 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
 
     private void openPicker(Consumer<String> onPick) {
         Screen current = Minecraft.getInstance().gui.screen();
+        InventoryGifConfigScreen.flushDraft(current);
         Minecraft.getInstance().gui.setScreen(new AnimationPickerScreen(current, value, picked -> {
             value = picked;
             valueButton.setMessage(labelFor(value));
@@ -70,6 +71,7 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
         valueButton.setY(y);
         valueButton.setWidth(buttonWidth);
         valueButton.extractRenderState(guiGraphics, mouseX, mouseY, delta);
+        AnimationPreview.draw(guiGraphics, value, x + entryWidth - buttonWidth - 22, y + 2, 16);
     }
 
     @Override
@@ -84,6 +86,6 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
 
     @Override
     public boolean isEdited() {
-        return AnimationPositionStorage.hasPendingEdits();
+        return InventoryGifConfigScreen.hasPendingEdits();
     }
 }

@@ -9,12 +9,31 @@ import java.util.Map;
 public final class ClientConfig {
     private final Map<String, ConfigValue<?>> values;
     private final CommentedFileConfig file;
+    private Map<String, Object> draftSnapshot;
     private ClientConfig(Map<String, ConfigValue<?>> values) {
         this.values = values;
         file = CommentedFileConfig.builder(FabricLoader.getInstance().getConfigDir()
                 .resolve("inventorygif-client.toml")).sync().build();
         file.load();
         values.forEach((key, value) -> value.load(file.get(key)));
+        save();
+    }
+    public void beginEdit() {
+        if (draftSnapshot != null) return;
+        draftSnapshot = new LinkedHashMap<>();
+        values.forEach((key, value) -> draftSnapshot.put(key, value.get()));
+    }
+    public boolean hasPendingEdits() {
+        return draftSnapshot != null && values.entrySet().stream()
+                .anyMatch(entry -> !java.util.Objects.equals(entry.getValue().get(), draftSnapshot.get(entry.getKey())));
+    }
+    public void cancelEdit() {
+        if (draftSnapshot == null) return;
+        draftSnapshot.forEach((key, value) -> values.get(key).load(value));
+        draftSnapshot = null;
+    }
+    public void commitEdit() {
+        draftSnapshot = null;
         save();
     }
     public void save() {
