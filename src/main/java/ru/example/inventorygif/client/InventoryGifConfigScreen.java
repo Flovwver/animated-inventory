@@ -153,10 +153,13 @@ public final class InventoryGifConfigScreen {
                 || AnimationLibrary.hasPendingEdits();
     }
 
-    static void flushDraft(Screen screen) {
+    static boolean flushDraft(Screen screen) {
         if (screen instanceof ClothConfigScreen cloth) {
+            if (cloth.getCategorizedEntries().values().stream()
+                    .flatMap(List::stream).anyMatch(entry -> entry.getError().isPresent())) return false;
             cloth.getCategorizedEntries().values().forEach(entries -> entries.forEach(entry -> entry.save()));
         }
+        return true;
     }
 
     static Screen rebuild(Screen current) {
@@ -275,14 +278,14 @@ public final class InventoryGifConfigScreen {
             survivalSub.add(buildNodeSubtree(child, all, children, animationNames, entries, 1, parent));
         }
 
-        category.addEntry(survivalSub.build());
+        category.addEntry(new StableSubCategoryEntry(survivalSub.build()));
 
         // Creative has its own images and no parent in storage.
         var creativeSub = entries.startSubCategory(
                 Component.literal(displayLabel(CREATIVE_KEY, all.get(CREATIVE_KEY))));
         creativeSub.setExpanded(true);
         creativeSub.addAll(nodeEntries(CREATIVE_KEY, all, animationNames, entries, parent));
-        category.addEntry(creativeSub.build());
+        category.addEntry(new StableSubCategoryEntry(creativeSub.build()));
     }
 
     /** Builds a collapsible node: a "Default" branch with its own fields plus child node subtrees. */
@@ -303,12 +306,12 @@ public final class InventoryGifConfigScreen {
         defaultBranch.setExpanded(depth <= 0);
         defaultBranch.addAll(nodeEntries(key, all, animationNames, entries, parent));
         defaultBranch.add(new DeleteNodeButtonEntry(key, children, parent));
-        sub.add(defaultBranch.build());
+        sub.add(new StableSubCategoryEntry(defaultBranch.build()));
 
         for (String child : children.getOrDefault(key, List.of())) {
             sub.add(buildNodeSubtree(child, all, children, animationNames, entries, depth + 1, parent));
         }
-        return sub.build();
+        return new StableSubCategoryEntry(sub.build());
     }
 
     /** Fields of one tree node: inherit toggle plus the list of image slots. */
@@ -331,7 +334,7 @@ public final class InventoryGifConfigScreen {
             list.add(new SettingsActionEntry(Component.translatable(e.inherit
                     ? "inventorygif.config.animations.inherit.on" : "inventorygif.config.animations.inherit.off"), () -> {
                 Screen currentScreen = Minecraft.getInstance().gui.screen();
-                flushDraft(currentScreen);
+                if (!flushDraft(currentScreen)) return;
                 if (e.inherit) {
                     materializeImages(e, AnimationPositionStorage.resolveEffectiveByKey(key));
                 } else {
@@ -434,7 +437,7 @@ public final class InventoryGifConfigScreen {
                     .build());
             card.add(new SettingsActionEntry(Component.translatable("inventorygif.config.animations.remove"), () -> {
                 Screen currentScreen = Minecraft.getInstance().gui.screen();
-                flushDraft(currentScreen);
+                if (!flushDraft(currentScreen)) return;
                 materializeImages(e, effective);
                 if (idx < e.images.size()) {
                     e.images.remove(idx);
@@ -442,12 +445,12 @@ public final class InventoryGifConfigScreen {
                 }
                 Minecraft.getInstance().gui.setScreen(rebuild(currentScreen));
             }));
-            imagesSub.add(card.build());
+            imagesSub.add(new StableSubCategoryEntry(card.build()));
         }
 
         imagesSub.add(new AddImageButtonEntry(e, effective, parent));
 
-        list.add(imagesSub.build());
+        list.add(new StableSubCategoryEntry(imagesSub.build()));
         return list;
     }
 
@@ -587,7 +590,7 @@ public final class InventoryGifConfigScreen {
                     })
                     .build());
 
-            category.addEntry(sub.build());
+            category.addEntry(new StableSubCategoryEntry(sub.build()));
         }
     }
     /** Receives both Save and Cancel; only Save has committed the draft beforehand. */

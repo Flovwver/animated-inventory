@@ -19,3 +19,6 @@ src/generated/
 # OS
 Thumbs.db
 .DS_Store
+
+# Isolated version branches
+.worktrees/
