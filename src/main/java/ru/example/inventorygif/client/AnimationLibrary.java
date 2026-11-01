@@ -67,6 +67,16 @@ public final class AnimationLibrary {
     private AnimationLibrary() {
     }
 
+    /** Opens the animation library directory, creating it if needed. */
+    public static void openFolder() {
+        try {
+            Files.createDirectories(DIR);
+            com.mojang.blaze3d.Blaze3D.openPath(DIR.toAbsolutePath());
+        } catch (IOException | RuntimeException e) {
+            InventoryGif.LOGGER.warn("Could not open animations folder {}", DIR, e);
+        }
+    }
+
     /** All known animations, keyed by name. Scans the folder on first call, then throttled. */
     public static Map<String, AnimationMeta> animations() {
         long now = System.currentTimeMillis();

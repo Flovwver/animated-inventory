@@ -51,6 +51,8 @@ public final class InventoryGifConfigScreen {
         ConfigCategory general = builder.getOrCreateCategory(
                 Component.translatable("inventorygif.config.category.general"));
 
+        general.addEntry(new OpenAnimationsFolderEntry());
+
         general.addEntry(entries.startIntField(
                         Component.translatable("inventorygif.config.xOffset"), InventoryGifConfig.X_OFFSET.get())
                 .setDefaultValue(178)

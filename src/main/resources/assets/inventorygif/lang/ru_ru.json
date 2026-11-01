@@ -64,5 +64,6 @@
   "key.categories.inventorygif": "Inventory GIF",
   "key.inventorygif.toggle_lock": "Переключить блокировку (держать Ctrl)",
   "key.inventorygif.settings": "Открыть настройки Inventory GIF (Ctrl)",
-  "key.category.inventorygif.general": "Inventory GIF"
+  "key.category.inventorygif.general": "Inventory GIF",
+  "inventorygif.config.open_folder": "Открыть папку с GIF и PNG"
 }
