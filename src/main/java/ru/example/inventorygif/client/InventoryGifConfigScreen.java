@@ -5,6 +5,7 @@ import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
 import me.shedaniel.clothconfig2.gui.ClothConfigScreen;
+import me.shedaniel.clothconfig2.gui.entries.SubCategoryListEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -28,7 +29,7 @@ import java.util.Map;
 public final class InventoryGifConfigScreen {
 
     /** Snapshot of the selected tab and scroll position during screen rebuilds. */
-    record ScreenState(int categoryIndex, double scroll) {
+    record ScreenState(int categoryIndex, double scroll, Map<List<Integer>, Boolean> expanded) {
     }
 
     private static final String CREATIVE_KEY =
@@ -142,15 +143,68 @@ public final class InventoryGifConfigScreen {
 
     static ScreenState captureState(Screen screen) {
         if (screen instanceof ClothConfigScreen clothScreen) {
-            return new ScreenState(clothScreen.selectedCategoryIndex, clothScreen.listWidget.getScroll());
+            Map<List<Integer>, Boolean> expanded = new HashMap<>();
+            int categoryIndex = 0;
+
+            for (var entries : clothScreen.getCategorizedEntries().values()) {
+                captureExpanded(entries, List.of(categoryIndex++), expanded);
+            }
+
+            return new ScreenState(clothScreen.selectedCategoryIndex,
+                    clothScreen.listWidget.getScroll(), Map.copyOf(expanded));
         }
-        return new ScreenState(0, 0);
+
+        return new ScreenState(0, 0, Map.of());
     }
 
+    /** Must run before setScreen: Cloth Config builds its list from the selected index during init. */
     static void restoreState(Screen screen, ScreenState state) {
         if (screen instanceof ClothConfigScreen clothScreen) {
             clothScreen.selectedCategoryIndex = state.categoryIndex();
-            clothScreen.listWidget.scrollTo(state.scroll(), false);
+            int categoryIndex = 0;
+
+            for (var entries : clothScreen.getCategorizedEntries().values()) {
+                restoreExpanded(entries, List.of(categoryIndex++), state.expanded());
+            }
+
+            // The list only exists after init. Restore scroll once, after its contents are ready.
+            clothScreen.setAfterInitConsumer(initialized -> {
+                clothScreen.listWidget.scrollTo(state.scroll(), false);
+                clothScreen.setAfterInitConsumer(null);
+            });
+        }
+    }
+
+    private static void captureExpanded(List<?> entries,
+                                        List<Integer> parent, Map<List<Integer>, Boolean> expanded) {
+        int subcategoryIndex = 0;
+
+        for (var entry : entries) {
+            if (entry instanceof SubCategoryListEntry subcategory) {
+                List<Integer> path = new ArrayList<>(parent);
+                path.add(subcategoryIndex++);
+                expanded.put(List.copyOf(path), subcategory.isExpanded());
+                captureExpanded(subcategory.getValue(), path, expanded);
+            }
+        }
+    }
+
+    private static void restoreExpanded(List<?> entries,
+                                        List<Integer> parent, Map<List<Integer>, Boolean> expanded) {
+        int subcategoryIndex = 0;
+
+        for (var entry : entries) {
+            if (entry instanceof SubCategoryListEntry subcategory) {
+                List<Integer> path = new ArrayList<>(parent);
+                path.add(subcategoryIndex++);
+                Boolean wasExpanded = expanded.get(path);
+
+                if (wasExpanded != null) {
+                    subcategory.setExpanded(wasExpanded);
+                }
+
+                restoreExpanded(subcategory.getValue(), path, expanded);
+            }
         }
     }
 
@@ -299,8 +353,8 @@ public final class InventoryGifConfigScreen {
                             Screen currentScreen = Minecraft.getInstance().gui.screen();
                             ScreenState state = captureState(currentScreen);
                             Screen rebuilt = InventoryGifConfigScreen.create(parent);
-                            Minecraft.getInstance().gui.setScreen(rebuilt);
                             restoreState(rebuilt, state);
+                            Minecraft.getInstance().gui.setScreen(rebuilt);
                         } else {
                             e.images.get(idx).animation = value;
                             AnimationPositionStorage.save();

@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 public final class AnimationPickerScreen extends Screen {
 
     private final Screen parent;
+    private final InventoryGifConfigScreen.ScreenState parentState;
     private final String currentValue;
     private final Consumer<String> onPick;
 
@@ -34,6 +35,7 @@ public final class AnimationPickerScreen extends Screen {
     public AnimationPickerScreen(@Nullable Screen parent, String currentValue, Consumer<String> onPick) {
         super(Component.translatable("inventorygif.config.animations.picker.title"));
         this.parent = parent;
+        this.parentState = InventoryGifConfigScreen.captureState(parent);
         this.currentValue = currentValue == null ? "" : currentValue;
         this.onPick = onPick;
     }
@@ -80,6 +82,7 @@ public final class AnimationPickerScreen extends Screen {
 
     @Override
     public void onClose() {
+        InventoryGifConfigScreen.restoreState(parent, parentState);
         minecraft.gui.setScreen(parent);
     }
 

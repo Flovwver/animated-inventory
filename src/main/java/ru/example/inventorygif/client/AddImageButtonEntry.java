@@ -16,7 +16,7 @@ import java.util.Optional;
  * "Add image" button for a tree node. Since Cloth Config builds its widget
  * tree once up front, adding a slot means the tree no longer matches
  * on-screen — so this reopens the whole config screen after appending,
- * which loses scroll position but keeps every slot index correct (no stale
+ * which preserves navigation and keeps every slot index correct (no stale
  * closures pointing at the wrong image). Caps at {@link #MAX_IMAGES} per
  * node so a misclick can't spiral into thousands of widgets again.
  */
@@ -41,8 +41,8 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
                     Screen current = Minecraft.getInstance().gui.screen();
                     InventoryGifConfigScreen.ScreenState state = InventoryGifConfigScreen.captureState(current);
                     Screen rebuilt = InventoryGifConfigScreen.create(parentOfConfigScreen);
-                    Minecraft.getInstance().gui.setScreen(rebuilt);
                     InventoryGifConfigScreen.restoreState(rebuilt, state);
+                    Minecraft.getInstance().gui.setScreen(rebuilt);
                 })
                 .bounds(0, 0, 200, 20)
                 .build();
