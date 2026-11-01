@@ -1,7 +1,7 @@
 package ru.example.inventorygif.client;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
-import net.fabricmc.loader.api.FabricLoader;
+import net.neoforged.fml.loading.FMLPaths;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -12,7 +12,7 @@ public final class ClientConfig {
     private Map<String, Object> draftSnapshot;
     private ClientConfig(Map<String, ConfigValue<?>> values) {
         this.values = values;
-        file = CommentedFileConfig.builder(FabricLoader.getInstance().getConfigDir()
+        file = CommentedFileConfig.builder(FMLPaths.CONFIGDIR.get()
                 .resolve("inventorygif-client.toml")).sync().build();
         file.load();
         values.forEach((key, value) -> value.load(file.get(key)));

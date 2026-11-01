@@ -32,7 +32,7 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
 
         this.button = Button.builder(Component.translatable("inventorygif.config.animations.add_image"), b -> {
                     Screen current = Minecraft.getInstance().gui.screen();
-                    InventoryGifConfigScreen.flushDraft(current);
+                    if (!InventoryGifConfigScreen.flushDraft(current)) return;
                     Minecraft.getInstance().gui.setScreen(new AnimationPickerScreen(current, "", picked -> {
                         if (picked.isEmpty()) return;
                         materialize(node, effective);

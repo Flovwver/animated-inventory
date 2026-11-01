@@ -42,7 +42,7 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
 
     private void openPicker(Consumer<String> onPick) {
         Screen current = Minecraft.getInstance().gui.screen();
-        InventoryGifConfigScreen.flushDraft(current);
+        if (!InventoryGifConfigScreen.flushDraft(current)) return;
         Minecraft.getInstance().gui.setScreen(new AnimationPickerScreen(current, value, picked -> {
             value = picked;
             valueButton.setMessage(labelFor(value));
