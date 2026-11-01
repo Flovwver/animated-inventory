@@ -231,30 +231,25 @@ public final class InventoryGifConfigScreen {
         Map<String, AnimationPositionStorage.Entry> all = AnimationPositionStorage.all();
         Map<String, List<String>> children = groupChildren(all);
 
-        // Base inventories: the root of the fallback chain.
-        var base = entries.startSubCategory(Component.translatable("inventorygif.config.animations.base"));
-        base.setExpanded(true);
+        // Show the same parent chain used by resolveEffectiveByKey at runtime.
         var survivalEntry = all.get(AnimationPositionStorage.SURVIVAL_KEY);
         var survivalSub = entries.startSubCategory(
-            Component.literal(displayLabel(AnimationPositionStorage.SURVIVAL_KEY, survivalEntry)));
+                Component.literal(displayLabel(AnimationPositionStorage.SURVIVAL_KEY, survivalEntry)));
         survivalSub.setExpanded(true);
         survivalSub.addAll(nodeEntries(AnimationPositionStorage.SURVIVAL_KEY, all, animationNames, entries, parent));
-        base.add(survivalSub.build());
 
+        for (String child : children.getOrDefault(AnimationPositionStorage.SURVIVAL_KEY, List.of())) {
+            survivalSub.add(buildNodeSubtree(child, all, children, animationNames, entries, 1, parent));
+        }
+
+        category.addEntry(survivalSub.build());
+
+        // Creative has its own images and no parent in storage.
         var creativeSub = entries.startSubCategory(
-            Component.literal(displayLabel(CREATIVE_KEY, all.get(CREATIVE_KEY))));
+                Component.literal(displayLabel(CREATIVE_KEY, all.get(CREATIVE_KEY))));
         creativeSub.setExpanded(true);
         creativeSub.addAll(nodeEntries(CREATIVE_KEY, all, animationNames, entries, parent));
-        base.add(creativeSub.build());
-        category.addEntry(base.build());
-
-        // Mod-level subtrees.
-        for (String modKey : children.getOrDefault(AnimationPositionStorage.SURVIVAL_KEY, List.of())) {
-            if (!modKey.startsWith("@mod:")) {
-                continue;
-            }
-            category.addEntry(buildNodeSubtree(modKey, all, children, animationNames, entries, 0, parent));
-        }
+        category.addEntry(creativeSub.build());
     }
 
     /** Builds a collapsible node: a "Default" branch with its own fields plus child node subtrees. */
