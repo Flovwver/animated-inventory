@@ -73,7 +73,7 @@ public final class AnimationPickerScreen extends Screen {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.extractBackground(guiGraphics, mouseX, mouseY, partialTick);
+        // Screen.extractRenderStateWithTooltipAndSubtitles already extracts the background.
         super.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
         guiGraphics.centeredText(font, title, width / 2, 12, 0xFFFFFFFF);
     }
