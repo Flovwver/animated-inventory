@@ -70,7 +70,10 @@ public final class AnimationPickerScreen extends Screen {
 
     private void pick(String name) {
         onPick.accept(name);
-        onClose();
+
+        if (minecraft.gui.screen() == this) {
+            onClose();
+        }
     }
 
     @Override

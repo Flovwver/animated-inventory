@@ -19,9 +19,7 @@ import java.util.function.Consumer;
  * dropdown. The picker's own list scrolls, so unlike the dropdown it never
  * gets clipped regardless of how many animations are in the library.
  *
- * Saves immediately on pick (mirrors the materialize+save the old dropdown's
- * setSaveConsumer did) rather than deferring to Cloth Config's own Save
- * button, so {@link #isEdited()} always reports false.
+ * Changes update the settings draft; Save commits it and Cancel discards it.
  */
 public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
 
@@ -65,7 +63,7 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
     public void extractRenderState(GuiGraphicsExtractor guiGraphics, int index, int y, int x, int entryWidth, int entryHeight,
                         int mouseX, int mouseY, boolean isHovered, float delta) {
         guiGraphics.text(Minecraft.getInstance().font, getFieldName(), x, y + entryHeight / 2 - 4,
-                0xFFFFFF, false);
+                0xFFFFFFFF, false);
 
         int buttonWidth = 150;
         valueButton.setX(x + entryWidth - buttonWidth);
@@ -86,6 +84,6 @@ public final class AnimationFieldEntry extends AbstractConfigListEntry<String> {
 
     @Override
     public boolean isEdited() {
-        return false;
+        return AnimationPositionStorage.hasPendingEdits();
     }
 }

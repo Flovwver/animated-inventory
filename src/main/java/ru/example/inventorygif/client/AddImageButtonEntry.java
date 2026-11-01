@@ -88,6 +88,6 @@ public final class AddImageButtonEntry extends AbstractConfigListEntry<Void> {
 
     @Override
     public boolean isEdited() {
-        return false;
+        return AnimationPositionStorage.hasPendingEdits();
     }
 }

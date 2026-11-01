@@ -40,12 +40,13 @@ public final class InventoryGifConfigScreen {
 
     /** Creates the config screen; {@code parent} is the screen to return to on close. */
     public static Screen create(Screen parent) {
+        AnimationPositionStorage.beginEdit();
         ConfigBuilder builder = ConfigBuilder.create()
-                .setParentScreen(parent)
+                .setParentScreen(new SettingsExitScreen(parent))
                 .setTitle(Component.translatable("inventorygif.config.title"))
                 .setSavingRunnable(() -> {
                     InventoryGifConfig.SPEC.save();
-                    AnimationPositionStorage.save();
+                    AnimationPositionStorage.commitEdit();
                 });
 
         ConfigEntryBuilder entries = builder.entryBuilder();
@@ -169,7 +170,15 @@ public final class InventoryGifConfigScreen {
 
             // The list only exists after init. Restore scroll once, after its contents are ready.
             clothScreen.setAfterInitConsumer(initialized -> {
-                clothScreen.listWidget.scrollTo(state.scroll(), false);
+                // Cloth Config's first layout can reset the scroll. Apply it after that frame.
+                boolean[] restored = {false};
+                net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterExtract(initialized)
+                        .register((current, graphics, mouseX, mouseY, delta) -> {
+                            if (!restored[0]) {
+                                clothScreen.listWidget.scrollTo(state.scroll(), false);
+                                restored[0] = true;
+                            }
+                        });
                 clothScreen.setAfterInitConsumer(null);
             });
         }
@@ -486,6 +495,10 @@ public final class InventoryGifConfigScreen {
                             Component.translatable("inventorygif.config.editor.frameCount"), meta.frameCount())
                     .setMin(1).setMax(1024)
                     .setSaveConsumer(v -> {
+                        if (draft[0] == v) {
+                            return;
+                        }
+
                         draft[0] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
@@ -494,6 +507,10 @@ public final class InventoryGifConfigScreen {
                             Component.translatable("inventorygif.config.editor.frameWidth"), meta.frameWidth())
                     .setMin(1).setMax(2048)
                     .setSaveConsumer(v -> {
+                        if (draft[1] == v) {
+                            return;
+                        }
+
                         draft[1] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
@@ -502,6 +519,10 @@ public final class InventoryGifConfigScreen {
                             Component.translatable("inventorygif.config.editor.frameHeight"), meta.frameHeight())
                     .setMin(1).setMax(2048)
                     .setSaveConsumer(v -> {
+                        if (draft[2] == v) {
+                            return;
+                        }
+
                         draft[2] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
@@ -511,12 +532,31 @@ public final class InventoryGifConfigScreen {
                             (int) meta.frameDurationMs())
                     .setMin(10).setMax(60000)
                     .setSaveConsumer(v -> {
+                        if (draft[3] == v) {
+                            return;
+                        }
+
                         draft[3] = v;
                         AnimationLibrary.writeMeta(meta.name(), draft[0], draft[1], draft[2], draft[3]);
                     })
                     .build());
 
             category.addEntry(sub.build());
+        }
+    }
+    /** Receives both Save and Cancel; only Save has committed the draft beforehand. */
+    private static final class SettingsExitScreen extends Screen {
+        private final Screen destination;
+
+        private SettingsExitScreen(Screen destination) {
+            super(Component.empty());
+            this.destination = destination;
+        }
+
+        @Override
+        public void tick() {
+            AnimationPositionStorage.cancelEdit();
+            minecraft.gui.setScreen(destination);
         }
     }
 }

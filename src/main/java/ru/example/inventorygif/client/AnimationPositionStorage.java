@@ -103,6 +103,8 @@ public final class AnimationPositionStorage {
 
     /** key -> entry; null until first load. */
     private static Map<String, Entry> entries;
+    private static Map<String, Entry> editSnapshot;
+    private static boolean editDirty;
 
     private AnimationPositionStorage() {
     }
@@ -223,8 +225,46 @@ public final class AnimationPositionStorage {
         return entries();
     }
 
+    /** Keep settings edits in memory until the user saves the config screen. */
+    public static void beginEdit() {
+        if (editSnapshot != null) {
+            return;
+        }
+
+        editSnapshot = new LinkedHashMap<>();
+        editDirty = false;
+        entries().forEach((key, value) -> {
+            Entry copy = new Entry(value.label, value.inherit, value.parentKey, value.images);
+            copy.locked = value.locked;
+            editSnapshot.put(key, copy);
+        });
+    }
+
+    public static void commitEdit() {
+        editSnapshot = null;
+        editDirty = false;
+        save();
+    }
+
+    public static void cancelEdit() {
+        if (editSnapshot != null) {
+            entries = editSnapshot;
+            editSnapshot = null;
+            editDirty = false;
+        }
+    }
+
+    public static boolean hasPendingEdits() {
+        return editDirty;
+    }
+
     /** Persists the current state to disk. */
     public static void save() {
+        if (editSnapshot != null) {
+            editDirty = true;
+            return;
+        }
+
         JsonObject root = new JsonObject();
         for (Map.Entry<String, Entry> e : entries().entrySet()) {
             Entry v = e.getValue();
