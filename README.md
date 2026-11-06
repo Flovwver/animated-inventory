@@ -1,4 +1,4 @@
-# Animated Inventory
+# Inventory GIF's
 
 [English](#english) · [Русский](#русский)
 
