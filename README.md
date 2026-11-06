@@ -6,7 +6,7 @@
 
 A client-side Minecraft mod that displays GIF and PNG animations over inventories and containers. Choose images, positions, and scales for each screen. The server does not need the mod.
 
-**This entire project was vibe-coded.**
+This project was developed with the assistance of generative AI.
 
 ### Minecraft versions
 
@@ -48,7 +48,7 @@ Settings are stored in `config/inventorygif-client.toml` and `config/inventorygi
 
 Клиентский мод для Minecraft, который показывает GIF и PNG-анимации поверх инвентаря и контейнеров. Для каждого экрана можно настроить свои изображения, позиции и масштаб. Серверу мод не требуется.
 
-**Весь проект навайбкожен.**
+Проект разработан с использованием генеративного ИИ.
 
 ### Версии Minecraft
 
